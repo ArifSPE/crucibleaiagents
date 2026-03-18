@@ -1,0 +1,12 @@
+{
+  "name": "scheduled-typescript-agent",
+  "version": "2.0.0",
+  "language": "typescript",
+  "entrypoint": "src/agent.ts",
+  "timeout_seconds": 180,
+  "schedule": {
+    "type": "interval",
+    "interval_seconds": 600,
+    "enabled": true
+  }
+}

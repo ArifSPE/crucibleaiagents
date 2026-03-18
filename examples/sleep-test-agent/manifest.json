@@ -1,0 +1,9 @@
+{
+  "name": "sleep-test-agent",
+  "version": "1.0.0",
+  "description": "Simple agent that sleeps for 30 seconds to test concurrent execution",
+  "language": "python",
+  "entrypoint": "src/agent.py",
+  "timeout_seconds": 60,
+  "action": "new"
+}

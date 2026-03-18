@@ -1,0 +1,131 @@
+services:
+  # Docker Socket Proxy: Restricts Docker API access for security.
+  # Limits worker to only necessary operations (CONTAINERS: inspect, list, port; POST: create, start; DELETE: remove)
+  # Raw socket is never exposed to application containers.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    environment:
+      CONTAINERS: 1   # GET /containers/... (inspect, list, port)
+      POST: 1         # POST /containers/... (create, start, stop, kill, wait)
+      DELETE: 1       # DELETE /containers/... (remove)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret123}
+      POSTGRES_DB: ${POSTGRES_DB:-crucibleaiagents}
+    ports:
+      - "5432:5432"
+    volumes:
+      - /Users/arifshaikh/docker-data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-crucibleaiagents}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: python:3.11-slim
+    working_dir: /workspace/api
+    volumes:
+      - ./:/workspace
+      - ${PACKAGE_WATCHER_BASE_DIR}:/workspace/package
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-secret123}@db:5432/${DB_NAME:-crucibleaiagents}
+      STORAGE_DIR: /workspace/package/deployed
+      ARCHIVE_DIR: /workspace/package/archive
+    depends_on:
+      db:
+        condition: service_healthy
+    command: /bin/sh -lc "cd /workspace && pip install --no-cache-dir -U pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && cd /workspace/api && python main.py"
+    ports:
+      - "8080:8000"
+
+  watcher:
+    image: python:3.11-slim
+    working_dir: /workspace/watcher
+    volumes:
+      - ./:/workspace
+      - ${PACKAGE_WATCHER_BASE_DIR}:/workspace/package
+    env_file:
+      - .env
+    environment:
+      API_BASE_URL: http://api:8000
+      PACKAGE_WATCHER_BASE_DIR: /workspace/package
+      PACKAGE_WATCHER_INCOMING_DIR: /workspace/package/incoming
+      PACKAGE_WATCHER_DEPLOYED_DIR: /workspace/package/deployed
+      PACKAGE_WATCHER_FAILED_DIR: /workspace/package/failed
+      PACKAGE_WATCHER_ARCHIVES_DIR: /workspace/package/archives
+    depends_on:
+      api:
+        condition: service_started
+    command: /bin/sh -lc "cd /workspace && pip install --no-cache-dir -U pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && cd /workspace/watcher && python package_watcher.py"
+
+  worker_container:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-secret123}@db:5432/${DB_NAME:-crucibleaiagents}
+      POLL_SECONDS: "3"
+      RUNNER_IMAGE: crucibleaiagents-runner:latest
+      RUNNER_API_BASE_URL: http://api:8000
+      DAEMON_API_BASE_URL: http://host.docker.internal:8000
+      WORKSPACE_HOST_PATH: ${PWD}
+      WORKSPACE_PACKAGE_HOST_PATH: ${PACKAGE_WATCHER_BASE_DIR}
+      DOCKER_HOST: tcp://docker-proxy:2375
+      AGENTFLOW_DOCKER_NETWORK: crucibleaiagents_default
+      AGENTFLOW_DAEMON_DOCKER_NETWORK: crucibleaiagents-daemon
+      DAEMON_HEALTH_CHECK_INTERVAL: "30"
+      STORAGE_DIR: /workspace/package/deployed
+    command: ["python", "/app/worker/container_worker.py"]
+    volumes:
+      - ./:/workspace
+      - ${PACKAGE_WATCHER_BASE_DIR}:/workspace/package
+    networks:
+      - default
+      - daemon
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+      docker-proxy:
+        condition: service_started
+
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    profiles: ["runner"]
+    env_file:
+      - .env
+    environment:
+      API_BASE_URL: http://api:8000
+      PACKAGE_DIR: /workspace/package/deployed
+    volumes:
+      - ./:/workspace
+      - ${PACKAGE_WATCHER_BASE_DIR}:/workspace/package
+    depends_on:
+      api:
+        condition: service_started
+
+networks:
+  default:
+    name: crucibleaiagents_default
+    driver: bridge
+  
+  daemon:
+    name: crucibleaiagents-daemon
+    driver: bridge
+   

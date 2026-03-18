@@ -1,0 +1,12 @@
+{
+  "name": "fresh-enhanced-test",
+  "version": "3.0.0",
+  "description": "Fresh test package for rebuilt containers",
+  "main": "src/agent.ts",
+  "scripts": {
+    "start": "tsx src/agent.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.6.2"
+  }
+}

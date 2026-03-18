@@ -1,0 +1,28 @@
+{
+  "name": "platform-llm-agent",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "Example agent using platform LLM provider #4 (Local Ollama)",
+  "entrypoint": "src/agent.py",
+  "timeout_seconds": 120,
+  "llm_provider": {
+    "use_platform": true,
+    "provider_id": 4,
+    "note": "Using local Ollama provider (ID: 4)"
+  },
+  "environment": {
+    "MODEL_NAME": "llama3.1",
+    "DEFAULT_TEMPERATURE": "0.7"
+  },
+  "schedule": {
+    "type": "interval",
+    "interval_seconds": 3600,
+    "enabled": false
+  },
+  "dependencies": [
+    "langchain",
+    "langchain-openai",
+    "langchain-anthropic",
+    "langchain-ollama"
+  ]
+}

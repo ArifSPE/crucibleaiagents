@@ -1,0 +1,29 @@
+{
+  "name": "local-automation-bot",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "Safe local automation bot for file organization and IMAP email cleanup",
+  "entrypoint": "src/agent.py",
+  "timeout_seconds": 300,
+  "schedule": {
+    "type": "interval",
+    "interval_seconds": 3600,
+    "enabled": false
+  },
+  "environment": {
+    "ENABLE_LOCAL_AUTOMATION": "false",
+    "AUTOMATION_MODE": "file_organize",
+    "AUTOMATION_DRY_RUN": "true",
+    "ALLOWLIST_ROOTS": "{secrets.ALLOWLIST_ROOTS}",
+    "TARGET_DIR": "{secrets.TARGET_DIR}",
+    "FILE_ACTION": "move",
+    "IMAP_HOST": "{secrets.IMAP_HOST}",
+    "IMAP_PORT": "993",
+    "IMAP_USERNAME": "{secrets.IMAP_USERNAME}",
+    "IMAP_PASSWORD": "{secrets.IMAP_PASSWORD}",
+    "EMAIL_ACTION": "move",
+    "EMAIL_MOVE_FOLDER": "Archive",
+    "EMAIL_CLEANUP_QUERY": "(SEEN BEFORE 01-Jan-2024)",
+    "EMAIL_MAX_MESSAGES": "50"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "hello-typescript",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sample TypeScript agent for AgentFlow",
+  "main": "src/agent.ts",
+  "scripts": {
+    "start": "tsx src/agent.ts"
+  },
+  "keywords": ["agentflow", "typescript", "agent"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

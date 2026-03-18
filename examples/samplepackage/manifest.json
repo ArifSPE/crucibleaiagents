@@ -1,0 +1,12 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "language": "python",
+  "entrypoint": "src/agent.py",
+  "timeout_seconds": 120,
+  "schedule": {
+    "type": "interval",
+    "interval_seconds": 300,
+    "enabled": true
+  }
+}

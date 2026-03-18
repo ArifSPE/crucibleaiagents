@@ -1,0 +1,135 @@
+{
+  "name": "msteams-summarizer-agent", 
+  "version": "1.0.0",
+  "language": "python",
+  "description": "AI agent for monitoring MS Teams channels and posting intelligent summaries. Reads unread messages, creates actionable summaries using LLM, and posts to designated channels.",
+  "entrypoint": "src/agent.py", 
+  "timeout_seconds": 300,
+  "environment": {
+    "MS_TEAMS_TENANT_ID": "{secrets.MS_TEAMS_TENANT_ID}",
+    "MS_TEAMS_CLIENT_ID": "{secrets.MS_TEAMS_CLIENT_ID}", 
+    "MS_TEAMS_CLIENT_SECRET": "{secrets.MS_TEAMS_CLIENT_SECRET}",
+    "MS_TEAMS_SCOPE": "https://graph.microsoft.com/.default",
+    "MS_TEAMS_TEAM_ID": "{secrets.MS_TEAMS_TEAM_ID}",
+    "MS_TEAMS_CHANNEL_ID": "{secrets.MS_TEAMS_CHANNEL_ID}",
+    "MS_TEAMS_DESTINATION_TEAM_ID": "{secrets.MS_TEAMS_DESTINATION_TEAM_ID}",
+    "MS_TEAMS_DESTINATION_CHANNEL_ID": "{secrets.MS_TEAMS_DESTINATION_CHANNEL_ID}",
+    "MS_TEAMS_WEBHOOK_URL": "{secrets.MS_TEAMS_WEBHOOK_URL}",
+    "LLM_ENDPOINT": "http://localhost:11434",
+    "LLM_MODEL": "llama3.1",
+    "SUMMARY_INTERVAL_MINUTES": "15",
+    "MAX_MESSAGES": "50",
+    "MIN_MESSAGES_THRESHOLD": "5",
+    "FILTER_BOT_MESSAGES": "true",
+    "INCLUDE_REACTIONS": "true",
+    "WEBSOCKET_ENABLED": "false"
+  },
+  "schedule": {
+    "type": "cron",
+    "cron_expression": "*/15 * * * *",
+    "interval_seconds": 900,
+    "enabled": true,
+    "timezone": "UTC",
+    "description": "Run channel summarization every 15 minutes for timely updates"
+  },
+  "webhooks": {
+    "enabled": false,
+    "endpoints": [
+      {
+        "path": "/webhook/teams",
+        "method": "POST", 
+        "description": "Trigger summarization via Teams webhook"
+      }
+    ]
+  },
+  "webhooks": {
+    "enabled": true,
+    "endpoints": [
+      {
+        "path": "/webhook/teams",
+        "method": "POST", 
+        "description": "Trigger summarization via Teams webhook"
+      }
+    ]
+  },
+  "websocket": {
+    "enabled": false,
+    "url": "",
+    "description": "Real-time Teams message notifications and triggers",
+    "reconnect_interval": 30,
+    "ping_interval": 60,
+    "message_types": [
+      "channel_message",
+      "summarize_request",
+      "status_update"
+    ]
+  },
+  "dependencies": [
+    "structlog",
+    "httpx",
+    "msal",
+    "asyncio-extras"
+  ],
+  "configuration": {
+    "teams_auth": {
+      "type": "oauth2",
+      "description": "MS Teams application requires Azure AD app registration with Teams API permissions",
+      "required_permissions": [
+        "ChannelMessage.Read.All",
+        "ChannelMessage.Send"
+      ],
+      "setup_instructions": "Create Azure AD app registration and configure Teams API permissions"
+    },
+    "channel_config": {
+      "type": "optional",
+      "description": "Configure separate source and destination channels",
+      "source_channel": "Channel to read messages from (MS_TEAMS_TEAM_ID, MS_TEAMS_CHANNEL_ID)",
+      "destination_channel": "Channel to post summaries to (MS_TEAMS_DESTINATION_TEAM_ID, MS_TEAMS_DESTINATION_CHANNEL_ID)",
+      "fallback": "If destination not specified, summaries will be posted to source channel"
+    },
+    "llm_backend": {
+      "type": "optional",
+      "description": "Configure LLM endpoint for advanced summarization (Ollama, OpenAI, etc.)",
+      "fallback": "Simple rule-based summarization if LLM not available"
+    }
+  },
+  "features": [
+    "Teams channel message reading with Graph API",
+    "AI-powered message summarization with structured output", 
+    "Automated summary posting to destination channels",
+    "Webhook posting support (no extra permissions needed)",
+    "Separate source and destination channels",
+    "Scheduled execution every 15 minutes",
+    "Minimum message threshold filtering",
+    "Bot message filtering",
+    "Reaction and attachment support",
+    "Comprehensive error handling and retry logic",
+    "Rate limiting and exponential backoff",
+    "Professional summary formatting with action items"
+  ],
+  "system_prompt": "You are an intelligent MS Teams channel summarization agent. Your role is to: 1) Read and analyze unread messages from MS Teams channels, 2) Create concise, actionable summaries of conversations, 3) Identify key discussion points, decisions, and action items, 4) Post well-formatted summaries to designated output channels. Guidelines: Keep summaries clear and well-structured, highlight urgent items separately, use bullet points for scanning, include message counts and time ranges, preserve important context and decisions, use professional neutral tone.",
+  "error_handling": {
+    "retry_policy": {
+      "max_retries": 3,
+      "backoff_multiplier": 2,
+      "initial_delay_seconds": 1
+    },
+    "fallback_actions": {
+      "auth_failure": "notify_admin",
+      "rate_limit": "exponential_backoff",
+      "channel_not_found": "skip_and_log"
+    }
+  },
+  "observability": {
+    "logging_level": "INFO",
+    "structured_logs": true,
+    "metrics_enabled": true,
+    "custom_metrics": [
+      "messages_read_total",
+      "summaries_posted_total",
+      "summarization_duration_seconds",
+      "msteams_api_calls_total",
+      "msteams_api_errors_total"
+    ]
+  }
+}

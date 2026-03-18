@@ -1,0 +1,17 @@
+{
+  "name": "sample-ops-bot",
+  "version": "1.0.0",
+  "description": "Sample package-based bot for unified Bot Runtime",
+  "language": "python",
+  "entrypoint": "src/agent.py",
+  "timeout_seconds": 120,
+  "tool_bindings": [
+    { "tool_key": "shell.command", "config": { "default_command": "date" } },
+    { "tool_key": "rest.call", "config": { "default_url": "https://api.github.com/repos/python/cpython" } }
+  ],
+  "schedule": {
+    "enabled": false,
+    "type": "interval",
+    "interval_seconds": 3600
+  }
+}

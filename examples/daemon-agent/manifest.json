@@ -1,0 +1,23 @@
+{
+  "name": "daemon-polling-agent",
+  "version": "1.0.0",
+  "description": "Example daemon agent that continuously polls for events",
+  "language": "python",
+  "entrypoint": "src/agent.py",
+  "timeout_seconds": 3600,
+  "runtime_mode": "daemon",
+  "auto_start": true,
+  "health_check": {
+    "type": "http",
+    "path": "/health",
+    "port": 5000,
+    "interval_seconds": 30,
+    "timeout_seconds": 5
+  },
+  "restart_policy": "on-failure",
+  "environment": {
+    "DAEMON_PORT": "5000",
+    "POLL_INTERVAL": "10",
+    "LOG_LEVEL": "INFO"
+  }
+}

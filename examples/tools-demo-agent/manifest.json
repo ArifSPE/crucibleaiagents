@@ -1,0 +1,17 @@
+{
+  "agent_id": "tools-demo",
+  "name": "Platform Tools Demo Agent",
+  "description": "Demonstrates LLM reasoning, shell commands, HTTP requests, and custom tools",
+  "version": "1.0.0",
+  "language": "python",
+  "entrypoint": "src/agent.py",
+  "environment": {
+    "LLM_MODEL": "llama3.1",
+    "OLLAMA_BASE_URL": "http://host.docker.internal:11434",
+    "TAVILY_API_KEY": "{secrets.TAVILY_API_KEY}"
+  },
+  "secrets": [
+    "TAVILY_API_KEY"
+  ],
+  "tags": ["demo", "tools", "llm", "reasoning"]
+}

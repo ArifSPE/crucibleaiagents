@@ -1,0 +1,31 @@
+{
+  "name": "react-ollama-agent",
+  "version": "1.0.1",
+  "action" : "Update",
+  "language": "python",
+  "description": "ReAct pattern agent using Ollama LLM with Tavily search and tool calling",
+  "entrypoint": "src/agent.py",
+  "timeout_seconds": 300,
+  "llm_provider": {
+    "note": "This agent uses local Ollama - can be configured to use platform provider instead",
+    "use_platform": false
+  },
+  "environment": {
+    "TAVILY_API_KEY": "{secrets.TAVILY_API_KEY}",
+    "OLLAMA_BASE_URL": "http://host.docker.internal:11434",
+    "OLLAMA_MODEL": "llama3.1"
+  },
+  "schedule": {
+    "type": "interval",
+    "interval_seconds": 3600,
+    "enabled": true
+  },
+  "dependencies": [
+    "langchain",
+    "langchain-community",
+    "langchain-ollama",
+    "langgraph",
+    "tavily-python",
+    "pydantic"
+  ]
+}

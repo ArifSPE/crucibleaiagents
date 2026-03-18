@@ -1,1 +1,21 @@
 .DS_Store
+api/__pycache__
+__pycache__
+*.zip
+.env
+
+# Python build/runtime artifacts
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Node artifacts in extracted package payloads
+package/deployed/**/node_modules/
+package/deployed/**/package-lock.json
+
+# Generated package runtime data
+package/deployed/
+package/failed/
+package/archive/
+package/archives/

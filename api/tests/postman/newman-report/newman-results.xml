@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="Crucible API Integration" tests="7" time="0.064">
+  <testsuite name="Health - OpenAPI" id="7d1831fa-78fb-4955-b409-c7135b734064" timestamp="2026-03-17T19:46:15.737Z" tests="2" failures="0" errors="0" time="0.014">
+    <testcase name="OpenAPI available" time="0.014" classname="HealthOpenApi"/>
+    <testcase name="OpenAPI is JSON" time="0.014" classname="HealthOpenApi"/>
+  </testsuite>
+  <testsuite name="Packages - List and Capture First Package" id="1c45b3b1-cfa3-4261-b62f-8ca8fe16076e" timestamp="2026-03-17T19:46:15.737Z" tests="3" failures="0" errors="0" time="0.005">
+    <testcase name="Packages endpoint returns 200" time="0.005" classname="PackagesListAndCaptureFirstPackage"/>
+    <testcase name="Packages response is an array" time="0.005" classname="PackagesListAndCaptureFirstPackage"/>
+    <testcase name="Package list check completed" time="0.005" classname="PackagesListAndCaptureFirstPackage"/>
+  </testsuite>
+  <testsuite name="LLM Providers - Create" id="65cb95ce-31e4-41f8-b344-d5a7b83acd3d" timestamp="2026-03-17T19:46:15.737Z" tests="2" failures="0" errors="0" time="0.017">
+    <testcase name="Create provider returns 201" time="0.017" classname="LlmProvidersCreate"/>
+    <testcase name="Provider created with credentials metadata only" time="0.017" classname="LlmProvidersCreate"/>
+  </testsuite>
+  <testsuite name="LLM Providers - Get By Id" id="2d6f01f8-4a52-4d5a-a2eb-aa16deb2cebc" timestamp="2026-03-17T19:46:15.737Z" tests="2" failures="0" errors="0" time="0.005">
+    <testcase name="Get provider returns 200" time="0.005" classname="LlmProvidersGetById"/>
+    <testcase name="Provider id matches captured id" time="0.005" classname="LlmProvidersGetById"/>
+  </testsuite>
+  <testsuite name="LLM Providers - Update" id="89c7bcc3-79bd-4c2e-bc19-40df09738dde" timestamp="2026-03-17T19:46:15.737Z" tests="2" failures="0" errors="0" time="0.014">
+    <testcase name="Update provider returns 200" time="0.014" classname="LlmProvidersUpdate"/>
+    <testcase name="Provider description updated" time="0.014" classname="LlmProvidersUpdate"/>
+  </testsuite>
+  <testsuite name="Flow Gate - Package Dependent" id="060254f9-8758-439d-ab8c-89cde6420065" timestamp="2026-03-17T19:46:15.737Z" tests="1" failures="0" errors="0" time="0.002">
+    <testcase name="Package-dependent flow skipped (no package data)" time="0.002" classname="FlowGatePackageDependent"/>
+  </testsuite>
+  <testsuite name="Cleanup - Delete LLM Provider" id="d4da3b09-1d6f-4c47-9061-f38f30d88ac2" timestamp="2026-03-17T19:46:15.737Z" tests="1" failures="0" errors="0" time="0.007">
+    <testcase name="Delete provider returns 204" time="0.007" classname="CleanupDeleteLlmProvider"/>
+  </testsuite>
+</testsuites>

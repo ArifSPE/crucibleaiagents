@@ -1,0 +1,13 @@
+{
+  "name": "local-ts-sample-agent",
+  "version": "1.0.0",
+  "language": "typescript",
+  "entrypoint": "src/agent.ts",
+  "timeout_seconds": 120,
+  "deployment": "local",
+  "schedule": {
+    "type": "interval",
+    "interval_seconds": 120,
+    "enabled": true
+  }
+}

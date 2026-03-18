@@ -1,0 +1,13 @@
+{
+  "name": "ts-agent-events-v3",
+  "version": "1.0.0",
+  "language": "typescript",
+  "entrypoint": "src/agent-with-events.ts",
+  "timeout_seconds": 120,
+  "deployment": "container",
+  "schedule": {
+    "type": "interval",
+    "interval_seconds": 300,
+    "enabled": true
+  }
+}

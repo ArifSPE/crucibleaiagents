@@ -1,0 +1,14 @@
+{
+  "name": "fresh-enhanced-test",
+  "version": "3.0.0",
+  "language": "typescript",
+  "entrypoint": "src/agent.ts",
+  "description": "Fresh test package for rebuilt containers",
+  "timeout_seconds": 180,
+  "schedule_enabled": true,
+  "schedule_cron": "*/15 * * * *",
+  "environment": {
+    "NODE_ENV": "production",
+    "TEST_MODE": "fresh-rebuild"
+  }
+}
