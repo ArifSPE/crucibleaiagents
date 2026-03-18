@@ -18,12 +18,15 @@ from worker.worker import _claim_next_run_for, _enqueue_autostart_daemon_runs, _
 LOGGER = get_logger("worker.local")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "5"))
 SCHEDULER_CHECK_INTERVAL = int(os.getenv("SCHEDULER_CHECK_INTERVAL", "15"))
+# How often (seconds) to enqueue daemon packages marked for auto-start.
+DAEMON_AUTOSTART_CHECK_INTERVAL = int(os.getenv("DAEMON_AUTOSTART_CHECK_INTERVAL", "30"))
 
 
 def main() -> None:
     _enqueue_autostart_daemon_runs("local")
     log_event(LOGGER, logging.INFO, "worker.local.startup", "Local worker started", poll_seconds=POLL_SECONDS)
     last_scheduler_check = 0.0  # Force an immediate check on the first iteration
+    last_autostart_check = 0.0  # Force an immediate check on the first iteration
     while True:
         try:
             now = time.monotonic()
@@ -40,6 +43,19 @@ def main() -> None:
                 except Exception as exc:
                     log_exception(LOGGER, "worker.local.scheduler_error", "Scheduler check failed", error=str(exc))
                 last_scheduler_check = time.monotonic()
+
+            # Periodically enqueue daemon packages created after worker startup.
+            if now - last_autostart_check >= DAEMON_AUTOSTART_CHECK_INTERVAL:
+                try:
+                    _enqueue_autostart_daemon_runs("local")
+                except Exception as exc:
+                    log_exception(
+                        LOGGER,
+                        "worker.local.daemon_autostart_error",
+                        "Daemon auto-start enqueue failed",
+                        error=str(exc),
+                    )
+                last_autostart_check = time.monotonic()
 
             run = _claim_next_run_for("local")
             if not run:

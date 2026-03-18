@@ -28,6 +28,8 @@ DAEMON_HEALTH_CHECK_INTERVAL = int(os.getenv("DAEMON_HEALTH_CHECK_INTERVAL", "30
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "10"))
 # How often (seconds) to check for due scheduled runs
 SCHEDULER_CHECK_INTERVAL = int(os.getenv("SCHEDULER_CHECK_INTERVAL", "15"))
+# How often (seconds) to enqueue daemon packages marked for auto-start.
+DAEMON_AUTOSTART_CHECK_INTERVAL = int(os.getenv("DAEMON_AUTOSTART_CHECK_INTERVAL", "30"))
 
 
 def main() -> None:
@@ -50,6 +52,7 @@ def main() -> None:
 
     executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_RUNS, thread_name_prefix="agent-run")
     last_scheduler_check = 0.0  # Force an immediate check on first iteration
+    last_autostart_check = 0.0  # Force an immediate check on first iteration
     try:
         while True:
             # Inline scheduler: fire due scheduled runs
@@ -64,6 +67,19 @@ def main() -> None:
                     log_exception(LOGGER, "worker.container.scheduler_error",
                                   "Error in scheduler tick", error=str(sched_exc))
                 last_scheduler_check = now
+
+            # Periodically enqueue daemon packages created after worker startup.
+            if now - last_autostart_check >= DAEMON_AUTOSTART_CHECK_INTERVAL:
+                try:
+                    _enqueue_autostart_daemon_runs("container")
+                except Exception as auto_exc:
+                    log_exception(
+                        LOGGER,
+                        "worker.container.daemon_autostart_error",
+                        "Error while enqueueing daemon auto-start runs",
+                        error=str(auto_exc),
+                    )
+                last_autostart_check = now
 
             try:
                 run = _claim_next_run_for("container")
