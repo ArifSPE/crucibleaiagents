@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOG_DIR="$ROOT_DIR/logs"
+LOG_FILE="$LOG_DIR/local_worker.log"
 
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a
@@ -23,6 +25,8 @@ DB_PORT_VAL="${DB_PORT:-5432}"
 
 export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://${DB_USER_VAL}:${DB_PASSWORD_VAL}@${DB_HOST_VAL}:${DB_PORT_VAL}/${DB_NAME_VAL}}"
 export POLL_SECONDS="${POLL_SECONDS:-3}"
+export PYTHONUNBUFFERED="1"
 
+mkdir -p "$LOG_DIR"
 cd "$ROOT_DIR"
-exec python worker/local_worker.py
+exec python worker/local_worker.py >> "$LOG_FILE" 2>&1

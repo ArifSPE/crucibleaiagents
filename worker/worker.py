@@ -567,6 +567,32 @@ def _execute_run(run: dict):
 
     try:
         workspace = _resolve_workspace(package.get("storage_path"))
+
+        # Defensive fallback: if resolution lands on the generic deployed root,
+        # try deriving the package-specific folder from storage_path basename.
+        storage_path_raw = str(package.get("storage_path") or "").strip()
+        if storage_path_raw and workspace.name == "deployed":
+            derived_name = Path(storage_path_raw).name
+            if derived_name:
+                derived_workspace = workspace / derived_name
+                if derived_workspace.exists() and derived_workspace.is_dir():
+                    workspace = derived_workspace
+
+        # Additional defensive fallback: if still on generic deployed dir,
+        # try package-specific folders by convention.
+        if workspace.name == "deployed":
+            candidate_names = [
+                f"{package.get('name')}_pkg{package.get('id')}",
+                str(package.get("name") or ""),
+            ]
+            for candidate_name in candidate_names:
+                if not candidate_name:
+                    continue
+                candidate_workspace = workspace / candidate_name
+                if candidate_workspace.exists() and candidate_workspace.is_dir():
+                    workspace = candidate_workspace
+                    break
+
         if not workspace.exists():
             raise FileNotFoundError(f"Workspace not found: {workspace}")
 

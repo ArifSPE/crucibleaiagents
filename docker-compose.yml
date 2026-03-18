@@ -45,7 +45,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: /bin/sh -lc "cd /workspace && pip install --no-cache-dir -U pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && cd /workspace/api && python main.py"
+    command: /bin/sh -lc "mkdir -p /workspace/logs && cd /workspace && pip install --no-cache-dir -U pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && cd /workspace/api && python main.py >> /workspace/logs/api.log 2>&1"
     ports:
       - "8080:8000"
 
@@ -67,7 +67,7 @@ services:
     depends_on:
       api:
         condition: service_started
-    command: /bin/sh -lc "cd /workspace && pip install --no-cache-dir -U pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && cd /workspace/watcher && python package_watcher.py"
+    command: /bin/sh -lc "mkdir -p /workspace/logs && cd /workspace && pip install --no-cache-dir -U pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && cd /workspace/watcher && python package_watcher.py >> /workspace/logs/watcher.log 2>&1"
 
   worker_container:
     build:
@@ -88,7 +88,7 @@ services:
       AGENTFLOW_DAEMON_DOCKER_NETWORK: crucibleaiagents-daemon
       DAEMON_HEALTH_CHECK_INTERVAL: "30"
       STORAGE_DIR: /workspace/package/deployed
-    command: ["python", "/app/worker/container_worker.py"]
+    command: ["/bin/sh", "-lc", "mkdir -p /workspace/logs && python /workspace/worker/container_worker.py >> /workspace/logs/worker.log 2>&1"]
     volumes:
       - ./:/workspace
       - ${PACKAGE_WATCHER_BASE_DIR}:/workspace/package
@@ -116,6 +116,7 @@ services:
     volumes:
       - ./:/workspace
       - ${PACKAGE_WATCHER_BASE_DIR}:/workspace/package
+    command: ["/bin/sh", "-lc", "mkdir -p /workspace/logs && python /opt/platform/run_agent.py >> /workspace/logs/runner.log 2>&1"]
     depends_on:
       api:
         condition: service_started

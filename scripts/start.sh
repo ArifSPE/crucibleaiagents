@@ -45,6 +45,7 @@ OPTIONS:
     --build [SERVICE...]  Build images before starting (all if none specified)
     --daemon             Run in background (default: attach to logs)
     --local-watcher      Also start local watcher process
+    --local-worker       Also start local worker process
     --no-color           Disable colored output
     --help               Show this help message
 
@@ -54,6 +55,7 @@ EXAMPLES:
     $0 --build api                  # Rebuild only the api image then start
     $0 --build api worker_container # Rebuild specific services then start
     $0 --daemon --local-watcher     # Start with local watcher process
+    $0 --daemon --local-worker      # Start with local worker process
 
 EOF
     exit 0
@@ -64,6 +66,7 @@ BUILD=false
 BUILD_SERVICES=()
 DAEMON=false
 LOCAL_WATCHER=false
+LOCAL_WORKER=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -82,6 +85,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --local-watcher)
             LOCAL_WATCHER=true
+            shift
+            ;;
+        --local-worker)
+            LOCAL_WORKER=true
             shift
             ;;
         --no-color)
@@ -103,6 +110,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "$PROJECT_ROOT"
+
+# Ensure local host log directory exists for service log redirection.
+mkdir -p "$PROJECT_ROOT/logs"
 
 log_info "Starting crucibleaiagents platform..."
 echo
@@ -264,6 +274,29 @@ if [ "$LOCAL_WATCHER" = true ]; then
     echo
 fi
 
+# Start local worker if requested
+if [ "$LOCAL_WORKER" = true ]; then
+    log_info "  → Starting local worker process..."
+
+    if pgrep -af "python .*worker/local_worker.py" >/dev/null 2>&1; then
+        log_warn "Local worker is already running"
+    else
+        local_worker_pid_file="$PROJECT_ROOT/.local_worker.pid"
+        nohup bash "$SCRIPT_DIR/run_local_worker_host.sh" >/dev/null 2>&1 &
+        local_worker_pid=$!
+        echo "$local_worker_pid" > "$local_worker_pid_file"
+        sleep 1
+
+        if kill -0 "$local_worker_pid" 2>/dev/null; then
+            log_success "Local worker started (PID: $local_worker_pid)"
+            log_info "Logs: $PROJECT_ROOT/logs/local_worker.log"
+        else
+            log_warn "Failed to confirm local worker startup; check logs/local_worker.log"
+        fi
+    fi
+    echo
+fi
+
 # Verify all services
 log_info "Verifying all services..."
 echo
@@ -301,7 +334,7 @@ ${BLUE}Useful commands:${NC}
 ${BLUE}Next steps:${NC}
   1. Verify API is responding:  curl http://localhost:8080/health
   2. View logs:                ./scripts/logs.sh
-  3. Start local worker:       ./scripts/run_local_worker_host.sh
+    3. Start local worker:       ./scripts/start.sh --local-worker
   4. Start local watcher:      ./scripts/run_local_watcher.sh start
 
 EOF

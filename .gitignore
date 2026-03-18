@@ -19,3 +19,7 @@ package/deployed/
 package/failed/
 package/archive/
 package/archives/
+
+# Local runtime artifacts
+.local_worker.pid
+logs/*.log

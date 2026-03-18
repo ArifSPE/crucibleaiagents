@@ -43,14 +43,16 @@ Usage: $0 [SERVICE] [OPTIONS]
 View and follow logs from platform services.
 
 SERVICES:
-    all             All services (default)
-    db              PostgreSQL database
-    api             FastAPI server
-    watcher         Package watcher (docker)
-    worker_container Container worker (includes daemon monitor)
-    docker-proxy    Docker socket proxy
-    runner          Agent runner (if enabled)
-    local_watcher   Local watcher process (host)
+    all              All local log files (default)
+    api              API log file
+    watcher          Watcher log file
+    worker_container Worker log file
+    worker           Alias for worker_container
+    runner           Runner log file
+    local_worker     Local worker host process log file
+    local_watcher    Local watcher host process log file
+    db               Docker logs fallback
+    docker-proxy     Docker logs fallback
 
 OPTIONS:
     -f, --follow    Follow log output (default)
@@ -62,24 +64,24 @@ OPTIONS:
     --help          Show this help message
 
 EXAMPLES:
-    $0                     # Follow all logs
-    $0 api                 # Follow API logs only
-    $0 worker_container    # Follow worker logs
-    $0 api -n 100          # Show last 100 lines of API logs
-    $0 --no-follow -n 50   # Show last 50 lines and exit
-    $0 worker_container --timestamps  # Worker logs with timestamps
+    $0                      # Follow all local log files
+    $0 api                  # Follow API log file
+    $0 worker_container     # Follow worker log file
+    $0 local_worker -n 100  # Show last 100 lines of local worker log
+    $0 --no-follow -n 50    # Show last 50 lines and exit
+    $0 db --timestamps      # Docker fallback logs with timestamps
 
 FILTERS:
-    daemon.monitor         Show daemon monitor events
-    ERROR                  Show only ERROR lines
-    worker.daemon          Show daemon-related worker events
-    local_watcher          Show local watcher events
+    daemon.monitor          Show daemon monitor events
+    ERROR                   Show only ERROR lines
+    worker.daemon           Show daemon-related worker events
+    local_watcher           Show local watcher events
 
 EXAMPLES WITH FILTERS:
-    $0 | grep daemon.monitor              # Docker daemon monitor
-    $0 local_watcher | grep -i error     # Local watcher errors
-    $0 worker_container | grep -i error  # Worker errors
-    $0 all | grep "worker.daemon"        # All daemon events
+    $0 | grep daemon.monitor               # Daemon monitor lines
+    $0 local_watcher | grep -i error      # Local watcher errors
+    $0 worker_container | grep -i error   # Worker errors
+    $0 all | grep "worker.daemon"         # All daemon events
 
 EOF
     exit 0
@@ -91,6 +93,7 @@ FOLLOW=true
 LINES=50
 TIMESTAMPS=false
 NO_COLOR=false
+LOG_DIR="$PROJECT_ROOT/logs"
 
 # Check if first arg is a service
 if [[ $# -gt 0 ]] && ! [[ $1 =~ ^- ]]; then
@@ -139,94 +142,122 @@ done
 
 cd "$PROJECT_ROOT"
 
-# Check docker-compose
+get_log_file_for_service() {
+    case "$1" in
+        api)
+            echo "$LOG_DIR/api.log"
+            ;;
+        watcher)
+            echo "$LOG_DIR/watcher.log"
+            ;;
+        worker|worker_container)
+            echo "$LOG_DIR/worker.log"
+            ;;
+        runner)
+            echo "$LOG_DIR/runner.log"
+            ;;
+        local_worker)
+            echo "$LOG_DIR/local_worker.log"
+            ;;
+        local_watcher)
+            echo "$LOG_DIR/local_watcher.log"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+tail_one_file() {
+    local file="$1"
+    local service_name="$2"
+    if [ ! -f "$file" ]; then
+        log_error "Log file not found for $service_name: $file"
+        return 1
+    fi
+
+    if [ "$FOLLOW" = true ]; then
+        log_info "Following $service_name log: $file"
+        echo
+        tail -n "$LINES" -f "$file"
+    else
+        log_info "Showing last $LINES lines from $service_name: $file"
+        echo
+        tail -n "$LINES" "$file"
+    fi
+}
+
+tail_all_files() {
+    local files=()
+    local candidates=(
+        "$LOG_DIR/api.log"
+        "$LOG_DIR/watcher.log"
+        "$LOG_DIR/worker.log"
+        "$LOG_DIR/runner.log"
+        "$LOG_DIR/local_worker.log"
+        "$LOG_DIR/local_watcher.log"
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [ -f "$candidate" ]; then
+            files+=("$candidate")
+        fi
+    done
+
+    if [ ${#files[@]} -eq 0 ]; then
+        log_error "No local log files found in $LOG_DIR"
+        log_info "Start services first (./scripts/start.sh) and local worker/watcher if needed"
+        return 1
+    fi
+
+    if [ "$FOLLOW" = true ]; then
+        log_info "Following all local logs under $LOG_DIR"
+        echo
+        tail -n "$LINES" -f "${files[@]}"
+    else
+        log_info "Showing last $LINES lines for all local logs"
+        echo
+        tail -n "$LINES" "${files[@]}"
+    fi
+}
+
+if [ "$SERVICE" = "all" ]; then
+    tail_all_files
+    exit $?
+fi
+
+local_log_file="$(get_log_file_for_service "$SERVICE")"
+if [ -n "$local_log_file" ]; then
+    tail_one_file "$local_log_file" "$SERVICE"
+    exit $?
+fi
+
+# Fallback: for services not redirected to local files, use docker-compose logs.
 if ! command -v docker-compose &> /dev/null; then
     log_error "docker-compose not found"
     exit 1
 fi
 
-# Build logs command
-logs_cmd="docker-compose logs"
+if ! docker-compose config --services | grep -q "^${SERVICE}$"; then
+    log_error "Service '$SERVICE' not found"
+    echo
+    log_info "Local-file services: api, watcher, worker_container, runner, local_worker, local_watcher"
+    log_info "Compose services:"
+    docker-compose config --services | sed 's/^/  - /'
+    exit 1
+fi
 
-# Add follow flag
+logs_cmd="docker-compose logs --tail=$LINES"
 if [ "$FOLLOW" = true ]; then
     logs_cmd="$logs_cmd -f"
 fi
-
-# Add lines
-logs_cmd="$logs_cmd --tail=$LINES"
-
-# Add timestamps
 if [ "$TIMESTAMPS" = true ]; then
     logs_cmd="$logs_cmd -t"
 fi
-
-# Add no-color
 if [ "$NO_COLOR" = true ]; then
     logs_cmd="$logs_cmd --no-color"
 fi
 
-# Handle local_watcher separately (not a docker-compose service)
-if [ "$SERVICE" = "local_watcher" ]; then
-    local_watcher_log="$PROJECT_ROOT/logs/local_watcher.log"
-    if [ ! -f "$local_watcher_log" ]; then
-        log_error "Local watcher log file not found: $local_watcher_log"
-        log_info "Start local watcher with: ./scripts/run_local_watcher.sh start"
-        exit 1
-    fi
-    
-    if [ "$FOLLOW" = true ]; then
-        log_info "Following local_watcher logs (press Ctrl+C to exit)"
-        echo
-        tail -f "$local_watcher_log"
-    else
-        log_info "Showing last $LINES lines from local_watcher"
-        echo
-        tail -n "$LINES" "$local_watcher_log"
-    fi
-    exit 0
-fi
-
-# Add service
-if [ "$SERVICE" != "all" ]; then
-    logs_cmd="$logs_cmd $SERVICE"
-fi
-
-# Verify service exists (if not "all")
-if [ "$SERVICE" != "all" ]; then
-    if ! docker-compose config --services | grep -q "^${SERVICE}$"; then
-        log_error "Service '$SERVICE' not found in docker-compose.yml"
-        echo
-        log_info "Available services:"
-        docker-compose config --services | sed 's/^/  - /'
-        log_info "Other services:"
-        echo "  - local_watcher (host process)"
-        echo
-        exit 1
-    fi
-fi
-
-# Show what we're doing
-if [ "$SERVICE" != "all" ]; then
-    if [ "$FOLLOW" = true ]; then
-        log_info "Following logs for service: $SERVICE (press Ctrl+C to exit)"
-    else
-        log_info "Showing last $LINES lines for service: $SERVICE"
-    fi
-else
-    if [ "$FOLLOW" = true ]; then
-        log_info "Following logs for all services (press Ctrl+C to exit)"
-    else
-        log_info "Showing last $LINES lines for all services"
-    fi
-fi
+log_info "Service '$SERVICE' uses docker-compose logs fallback"
 echo
-
-# Execute logs command
-$logs_cmd
-
-# If not following, show helpful info on exit
-if [ "$FOLLOW" = false ]; then
-    echo
-    log_info "Use './scripts/logs.sh $SERVICE -f' to follow logs"
-fi
+$logs_cmd "$SERVICE"
