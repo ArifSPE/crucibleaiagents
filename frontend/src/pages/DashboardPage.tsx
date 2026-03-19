@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { SectionCard } from "../components/SectionCard";
 import { StatusBadge } from "../components/StatusBadge";
@@ -77,7 +78,7 @@ export function DashboardView({ health, packages, runs, schedules, providers, lo
                 {runs.slice(0, 8).map((run) => (
                   <tr key={run.id}>
                     <td>#{run.id}</td>
-                    <td>{run.agent_package_id}</td>
+                    <td><Link to={`/packages?package=${run.agent_package_id}`}>#{run.agent_package_id}</Link></td>
                     <td><StatusBadge status={run.status} /></td>
                     <td>{run.runtime_mode || "batch"}</td>
                     <td>{formatTimestamp(run.started_at)}</td>
