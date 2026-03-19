@@ -5,7 +5,6 @@ import { AuditPage } from "../pages/AuditPage";
 import { DaemonsPage } from "../pages/DaemonsPage";
 import { PackagesPage } from "../pages/PackagesPage";
 import { ProvidersPage } from "../pages/ProvidersPage";
-import { RunsPage } from "../pages/RunsPage";
 import { WatcherPage } from "../pages/WatcherPage";
 
 export function App() {
@@ -14,7 +13,6 @@ export function App() {
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/packages" element={<PackagesPage />} />
-        <Route path="/runs" element={<RunsPage />} />
         <Route path="/watcher" element={<WatcherPage />} />
         <Route path="/daemons" element={<DaemonsPage />} />
         <Route path="/audit" element={<AuditPage />} />

@@ -21,7 +21,6 @@ export function AppShell({ children }: PropsWithChildren) {
             Dashboard
           </NavLink>
           <NavLink to="/packages">Packages</NavLink>
-          <NavLink to="/runs">Runs</NavLink>
           <NavLink to="/watcher">Watcher</NavLink>
           <NavLink to="/daemons">Daemons</NavLink>
           <NavLink to="/audit">Audit</NavLink>

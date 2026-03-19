@@ -208,7 +208,7 @@ export function PackagesPage() {
 
       <SectionCard
         title={selectedPackage ? `Package #${selectedPackage.id}: ${selectedPackage.name}` : "Package details"}
-        subtitle="Run status, drilldown events/logs, secrets, and schedule operations"
+        subtitle="Configure secrets and schedules, view run events and logs"
         actions={selectedPackage ? <button className="button" onClick={() => void handleRunPackage(selectedPackage.id)} type="button">Run now</button> : null}
       >
         {selectedPackage ? (
@@ -221,150 +221,6 @@ export function PackagesPage() {
                 <div><strong>Runtime</strong> {selectedPackage.runtime_mode || "batch"}</div>
               </div>
             </div>
-
-            <Tabs
-              tabs={[
-                {
-                  id: "runs",
-                  label: "Runs",
-                  content: runsState.data?.length ? (
-                    <div className="table-wrap">
-                      <table className="data-table">
-                        <thead>
-                          <tr>
-                            <th>Run</th>
-                            <th>Status</th>
-                            <th>Mode</th>
-                            <th>Started</th>
-                            <th>Error</th>
-                            <th>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {runsState.data.slice(0, 8).map((run) => (
-                            <tr className={run.id === selectedRunId ? "selected-row" : ""} key={run.id}>
-                              <td>#{run.id}</td>
-                              <td><StatusBadge status={run.status} /></td>
-                              <td>{run.runtime_mode || "batch"}</td>
-                              <td>{formatTimestamp(run.started_at)}</td>
-                              <td>{run.error || "-"}</td>
-                              <td>
-                                <div className="table-actions">
-                                  <button
-                                    className="button button--small"
-                                    onClick={() => {
-                                      setSelectedRunId(run.id);
-                                      setRunDrilldownView("events");
-                                    }}
-                                    type="button"
-                                  >
-                                    Events
-                                  </button>
-                                  <button
-                                    className="button button--small"
-                                    onClick={() => {
-                                      setSelectedRunId(run.id);
-                                      setRunDrilldownView("logs");
-                                    }}
-                                    type="button"
-                                  >
-                                    Logs
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <EmptyState title="No runs for this package" description="Trigger a run from the Run now button to populate run history." />
-                  ),
-                },
-                {
-                  id: "events",
-                  label: "Events",
-                  content: selectedRun ? (
-                    <div>
-                      <div className="page-state-subtitle">
-                        Showing events for run #{selectedRun.id}
-                      </div>
-                      {runEventsState.data?.length ? (
-                        <div className="table-wrap">
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th>Time</th>
-                                <th>Type</th>
-                                <th>Level</th>
-                                <th>Source</th>
-                                <th>Message</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {runEventsState.data.map((event) => (
-                                <tr key={event.id}>
-                                  <td>{formatTimestamp(event.ts)}</td>
-                                  <td>{event.type}</td>
-                                  <td>{event.level || "-"}</td>
-                                  <td>{event.source || "-"}</td>
-                                  <td>{event.message || "-"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <EmptyState title="No events for selected run" description="Select a run from the Runs tab to view its events." />
-                      )}
-                    </div>
-                  ) : (
-                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Events on a run to view its events here." />
-                  ),
-                },
-                {
-                  id: "logs",
-                  label: "Logs",
-                  content: selectedRun ? (
-                    <div>
-                      <div className="page-state-subtitle">
-                        Showing logs for run #{selectedRun.id}
-                      </div>
-                      {runLogsState.data?.length ? (
-                        <div className="table-wrap">
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th>Time</th>
-                                <th>Stream</th>
-                                <th>Level</th>
-                                <th>Line</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {runLogsState.data.map((log) => (
-                                <tr key={log.id}>
-                                  <td>{formatTimestamp(log.ts)}</td>
-                                  <td>{log.stream}</td>
-                                  <td>{log.level}</td>
-                                  <td>{log.line}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <EmptyState title="No logs for selected run" description="Select a run from the Runs tab to view its logs here." />
-                      )}
-                    </div>
-                  ) : (
-                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Logs on a run to view its logs here." />
-                  ),
-                },
-              ]}
-              activeTabId={runDrilldownView}
-              onTabChange={(tabId) => setRunDrilldownView(tabId as RunDrilldownView)}
-            />
 
             <div className="package-config-section">
               <div className="config-column">
@@ -439,6 +295,93 @@ export function PackagesPage() {
                 </form>
               </div>
             </div>
+
+            <Tabs
+              tabs={[
+                {
+                  id: "events",
+                  label: "Recent events",
+                  content: selectedRun ? (
+                    <div>
+                      <div className="page-state-subtitle">
+                        Showing events for run #{selectedRun.id}
+                      </div>
+                      {runEventsState.data?.length ? (
+                        <div className="table-wrap">
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th>Time</th>
+                                <th>Type</th>
+                                <th>Level</th>
+                                <th>Source</th>
+                                <th>Message</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {runEventsState.data.map((event) => (
+                                <tr key={event.id}>
+                                  <td>{formatTimestamp(event.ts)}</td>
+                                  <td>{event.type}</td>
+                                  <td>{event.level || "-"}</td>
+                                  <td>{event.source || "-"}</td>
+                                  <td>{event.message || "-"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <EmptyState title="No events for selected run" description="Select a run from the Runs tab to view its events." />
+                      )}
+                    </div>
+                  ) : (
+                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Events on a run to view its events here." />
+                  ),
+                },
+                {
+                  id: "logs",
+                  label: "Recent logs",
+                  content: selectedRun ? (
+                    <div>
+                      <div className="page-state-subtitle">
+                        Showing logs for run #{selectedRun.id}
+                      </div>
+                      {runLogsState.data?.length ? (
+                        <div className="table-wrap">
+                          <table className="data-table">
+                            <thead>
+                              <tr>
+                                <th>Time</th>
+                                <th>Stream</th>
+                                <th>Level</th>
+                                <th>Line</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {runLogsState.data.map((log) => (
+                                <tr key={log.id}>
+                                  <td>{formatTimestamp(log.ts)}</td>
+                                  <td>{log.stream}</td>
+                                  <td>{log.level}</td>
+                                  <td>{log.line}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <EmptyState title="No logs for selected run" description="Select a run from the Runs tab to view its logs here." />
+                      )}
+                    </div>
+                  ) : (
+                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Logs on a run to view its logs here." />
+                  ),
+                },
+              ]}
+              activeTabId={runDrilldownView}
+              onTabChange={(tabId) => setRunDrilldownView(tabId as RunDrilldownView)}
+            />
           </>
         ) : (
           <EmptyState title="Select a package" description="Choose a package from the catalog to view its current state and perform package-specific actions." />
