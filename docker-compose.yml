@@ -69,6 +69,20 @@ services:
         condition: service_started
     command: /bin/sh -lc "mkdir -p /workspace/logs && cd /workspace && pip install --no-cache-dir -U pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && cd /workspace/watcher && python package_watcher.py >> /workspace/logs/watcher.log 2>&1"
 
+  frontend:
+    image: node:20-alpine
+    working_dir: /workspace/frontend
+    volumes:
+      - ./:/workspace
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+    depends_on:
+      api:
+        condition: service_started
+    command: /bin/sh -lc "mkdir -p /workspace/logs && cd /workspace/frontend && npm install && npm run dev -- --host 0.0.0.0 --port 5173 >> /workspace/logs/frontend.log 2>&1"
+    ports:
+      - "5173:5173"
+
   worker_container:
     build:
       context: .

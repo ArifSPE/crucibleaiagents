@@ -257,6 +257,12 @@ docker-compose up -d watcher
 log_success "Watcher started"
 echo
 
+# Start frontend console
+log_info "  → Starting frontend console..."
+docker-compose up -d frontend
+log_success "Frontend started"
+echo
+
 # Start worker_container (includes daemon monitor)
 log_info "  → Starting container worker (with daemon monitor)..."
 docker-compose up -d worker_container
@@ -322,7 +328,7 @@ echo
 cat << EOF
 ${BLUE}Platform Services:${NC}
   API:               http://localhost:8080
-  Frontend:          http://localhost:3000 (if enabled)
+    Frontend:          http://localhost:5173
   Database:          postgres://localhost:5432
 
 ${BLUE}Useful commands:${NC}

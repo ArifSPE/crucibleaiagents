@@ -1,0 +1,60 @@
+import { apiFetch } from "./apiClient";
+import type {
+  AgentPackage,
+  CreatedEntity,
+  HealthResponse,
+  LlmProvider,
+  LlmProviderUpsertRequest,
+  PackageRegisterRequest,
+  PackageSchedule,
+  PackageSecret,
+  RunEvent,
+  RunLog,
+  RunSummary,
+  ScheduleUpsertRequest,
+  SecretUpsertRequest,
+} from "../types/api";
+
+export const platformApi = {
+  health: () => apiFetch<HealthResponse>("/health"),
+  listPackages: () => apiFetch<AgentPackage[]>("/packages"),
+  listPackage: (packageId: number) => apiFetch<AgentPackage>(`/packages/${packageId}`),
+  getPackage: (packageId: number) => apiFetch<AgentPackage>(`/packages/${packageId}`),
+  registerPackage: (payload: PackageRegisterRequest) =>
+    apiFetch<CreatedEntity>("/packages/register", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  listRuns: () => apiFetch<RunSummary[]>("/runs"),
+  createRun: (packageId: number) => apiFetch<RunSummary>(`/runs?package_id=${packageId}`, { method: "POST" }),
+  getRun: (runId: number) => apiFetch<RunSummary>(`/runs/${runId}`),
+  getPackageRuns: (packageId: number) => apiFetch<RunSummary[]>(`/runs/package/${packageId}`),
+  getRunLogs: (runId: number) => apiFetch<RunLog[]>(`/runs/${runId}/logs`),
+  getRunEvents: (runId: number) => apiFetch<RunEvent[]>(`/runs/${runId}/events`),
+  listSchedules: () => apiFetch<PackageSchedule[]>("/schedules"),
+  listPackageSchedules: (packageId: number) => apiFetch<PackageSchedule[]>(`/packages/${packageId}/schedules`),
+  createPackageSchedule: (packageId: number, payload: ScheduleUpsertRequest) =>
+    apiFetch<PackageSchedule>(`/packages/${packageId}/schedules`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  listPackageSecrets: (packageId: number) => apiFetch<PackageSecret[]>(`/packages/${packageId}/secrets`),
+  createPackageSecret: (packageId: number, payload: SecretUpsertRequest) =>
+    apiFetch<PackageSecret>(`/packages/${packageId}/secrets`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updatePackageSecret: (packageId: number, secretId: number, payload: SecretUpsertRequest) =>
+    apiFetch<PackageSecret>(`/packages/${packageId}/secrets/${secretId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deletePackageSecret: (packageId: number, secretId: number) =>
+    apiFetch<void>(`/packages/${packageId}/secrets/${secretId}`, { method: "DELETE" }),
+  listProviders: () => apiFetch<LlmProvider[]>("/llm-providers"),
+  createProvider: (payload: LlmProviderUpsertRequest) =>
+    apiFetch<LlmProvider>("/llm-providers", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+};

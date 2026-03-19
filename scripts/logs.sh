@@ -49,6 +49,7 @@ SERVICES:
     worker_container Worker log file
     worker           Alias for worker_container
     runner           Runner log file
+    frontend         Frontend log file
     local_worker     Local worker host process log file
     local_watcher    Local watcher host process log file
     db               Docker logs fallback
@@ -156,6 +157,9 @@ get_log_file_for_service() {
         runner)
             echo "$LOG_DIR/runner.log"
             ;;
+        frontend)
+            echo "$LOG_DIR/frontend.log"
+            ;;
         local_worker)
             echo "$LOG_DIR/local_worker.log"
             ;;
@@ -194,6 +198,7 @@ tail_all_files() {
         "$LOG_DIR/watcher.log"
         "$LOG_DIR/worker.log"
         "$LOG_DIR/runner.log"
+        "$LOG_DIR/frontend.log"
         "$LOG_DIR/local_worker.log"
         "$LOG_DIR/local_watcher.log"
     )
@@ -241,7 +246,7 @@ fi
 if ! docker-compose config --services | grep -q "^${SERVICE}$"; then
     log_error "Service '$SERVICE' not found"
     echo
-    log_info "Local-file services: api, watcher, worker_container, runner, local_worker, local_watcher"
+    log_info "Local-file services: api, watcher, worker_container, runner, frontend, local_worker, local_watcher"
     log_info "Compose services:"
     docker-compose config --services | sed 's/^/  - /'
     exit 1
