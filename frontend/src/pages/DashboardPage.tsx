@@ -21,6 +21,8 @@ export function DashboardView({ health, packages, runs, schedules, providers, lo
   const runningCount = runs.filter((run) => run.status === "running").length;
   const failedCount = runs.filter((run) => run.status === "failed").length;
   const daemonPackages = packages.filter((pkg) => pkg.runtime_mode === "daemon").length;
+  const heldPackages = packages.filter((pkg) => (pkg.missing_secret_keys || []).length > 0).length;
+  const packageById = new Map(packages.map((pkg) => [pkg.id, pkg]));
 
   if (loading) {
     return <div className="page-state">Loading platform dashboard...</div>;
@@ -58,6 +60,10 @@ export function DashboardView({ health, packages, runs, schedules, providers, lo
           <span>Daemon packages</span>
           <strong>{daemonPackages}</strong>
         </article>
+        <article className="stat-card">
+          <span>Held packages</span>
+          <strong>{heldPackages}</strong>
+        </article>
       </section>
 
       <SectionCard title="Recent runs" subtitle="Latest execution activity across the platform">
@@ -75,16 +81,27 @@ export function DashboardView({ health, packages, runs, schedules, providers, lo
                 </tr>
               </thead>
               <tbody>
-                {runs.slice(0, 8).map((run) => (
-                  <tr key={run.id}>
-                    <td>#{run.id}</td>
-                    <td><Link to={`/packages?package=${run.agent_package_id}`}>#{run.agent_package_id}</Link></td>
-                    <td><StatusBadge status={run.status} /></td>
-                    <td>{run.runtime_mode || "batch"}</td>
-                    <td>{formatTimestamp(run.started_at)}</td>
-                    <td>{formatDuration(run.started_at, run.completed_at)}</td>
-                  </tr>
-                ))}
+                {runs.slice(0, 8).map((run) => {
+                  const pkg = packageById.get(run.agent_package_id);
+                  const isHeld = Boolean(pkg && (pkg.missing_secret_keys || []).length > 0);
+                  return (
+                    <tr key={run.id}>
+                      <td>#{run.id}</td>
+                      <td>
+                        <Link to={`/packages?package=${run.agent_package_id}`}>#{run.agent_package_id}</Link>
+                        {isHeld ? (
+                          <div className="subtle-cell">
+                            <StatusBadge status="blocked" />
+                          </div>
+                        ) : null}
+                      </td>
+                      <td><StatusBadge status={run.status} /></td>
+                      <td>{run.runtime_mode || "batch"}</td>
+                      <td>{formatTimestamp(run.started_at)}</td>
+                      <td>{formatDuration(run.started_at, run.completed_at)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

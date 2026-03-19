@@ -205,6 +205,7 @@ export function PackagesPage() {
                 </div>
                 <div className="catalog-card__meta">
                   <StatusBadge status={pkg.runtime_mode || "batch"} />
+                  {pkg.missing_secret_keys?.length ? <StatusBadge status="blocked" /> : null}
                   <span>{pkg.deployment}</span>
                 </div>
               </button>
