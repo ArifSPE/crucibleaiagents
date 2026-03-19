@@ -134,6 +134,32 @@ def test_create_secret_encrypted_value_never_returned(client, sample_package):
     assert "encrypted_value" not in resp.json()
 
 
+def test_create_secret_clears_missing_required_secret_keys(client, db, sample_package):
+    from schemas.model import PackageSecret
+
+    sample_package.description_json = {
+        "secret_keys": ["API_KEY"],
+        "schedule_requested_enabled": True,
+        "schedule_activation_blocked": True,
+        "missing_secret_keys": ["API_KEY"],
+    }
+    db.add(sample_package)
+    db.add(PackageSecret(package_id=sample_package.id, key_name="API_KEY", encrypted_value=""))
+    db.commit()
+
+    resp = client.post(
+        f"/packages/{sample_package.id}/secrets",
+        json={"key_name": "API_KEY", "value": "new-secret-value"},
+    )
+    assert resp.status_code == 200
+
+    pkg = client.get(f"/packages/{sample_package.id}")
+    assert pkg.status_code == 200
+    body = pkg.json()
+    assert body["missing_secret_keys"] == []
+    assert body["schedule_activation_blocked"] is False
+
+
 # ── update ────────────────────────────────────────────────────────────────────
 
 def test_update_secret_value(client, sample_package):

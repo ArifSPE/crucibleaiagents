@@ -174,9 +174,7 @@ def _get_missing_required_secret_keys_for_package(db: Session, package: AgentPac
 
 def _refresh_package_secret_metadata(package: AgentPackage, missing_secret_keys: list[str]) -> Dict[str, Any]:
     """Refresh package metadata flags driven by required secret readiness."""
-    metadata: Dict[str, Any] = (
-        package.description_json if isinstance(package.description_json, dict) else {}
-    )
+    metadata: Dict[str, Any] = dict(package.description_json) if isinstance(package.description_json, dict) else {}
 
     requested_schedule_enabled = metadata.get("schedule_requested_enabled")
     if requested_schedule_enabled is None:
