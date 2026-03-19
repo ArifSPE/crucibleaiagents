@@ -332,11 +332,11 @@ export function PackagesPage() {
                           </table>
                         </div>
                       ) : (
-                        <EmptyState title="No events for selected run" description="Select a run from the Runs tab to view its events." />
+                        <EmptyState title="No events for selected run" description="Create a run using the 'Run now' button, then the latest events will appear here." />
                       )}
                     </div>
                   ) : (
-                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Events on a run to view its events here." />
+                    <EmptyState title="Select a run first" description="Create a run using the 'Run now' button to populate events here." />
                   ),
                 },
                 {
@@ -371,11 +371,11 @@ export function PackagesPage() {
                           </table>
                         </div>
                       ) : (
-                        <EmptyState title="No logs for selected run" description="Select a run from the Runs tab to view its logs here." />
+                        <EmptyState title="No logs for selected run" description="Create a run using the 'Run now' button, then the latest logs will appear here." />
                       )}
                     </div>
                   ) : (
-                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Logs on a run to view its logs here." />
+                    <EmptyState title="Select a run first" description="Create a run using the 'Run now' button to populate logs here." />
                   ),
                 },
               ]}
