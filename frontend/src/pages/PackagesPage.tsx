@@ -72,8 +72,42 @@ export function PackagesPage() {
     () => (runsState.data || []).find((run) => run.id === selectedRunId) || null,
     [runsState.data, selectedRunId],
   );
+  const requiredSecretKeys = selectedPackage?.secret_keys || [];
+  const requiredSecretKeysSignature = requiredSecretKeys.join("|");
   const missingSecretKeys = selectedPackage?.missing_secret_keys || [];
   const isPackageOnHold = missingSecretKeys.length > 0;
+  const secretRows = useMemo(() => {
+    const secretByKey = new Map((secretsState.data || []).map((secret) => [secret.key_name, secret]));
+
+    if (!requiredSecretKeys.length) {
+      return (secretsState.data || []).map((secret) => ({
+        key_name: secret.key_name,
+        updated_at: secret.updated_at,
+        is_missing: false,
+      }));
+    }
+
+    const rows = requiredSecretKeys.map((key_name) => {
+      const existing = secretByKey.get(key_name);
+      return {
+        key_name,
+        updated_at: existing?.updated_at || null,
+        is_missing: missingSecretKeys.includes(key_name),
+      };
+    });
+
+    for (const secret of secretsState.data || []) {
+      if (!requiredSecretKeys.includes(secret.key_name)) {
+        rows.push({
+          key_name: secret.key_name,
+          updated_at: secret.updated_at,
+          is_missing: false,
+        });
+      }
+    }
+
+    return rows;
+  }, [missingSecretKeys, requiredSecretKeys, secretsState.data]);
 
   useEffect(() => {
     if (!selectedPackageId && packagesState.data?.length) {
@@ -132,6 +166,19 @@ export function PackagesPage() {
     }
   }, [runsState.data, selectedPackageId, selectedRunId]);
 
+  useEffect(() => {
+    if (!requiredSecretKeys.length) {
+      return;
+    }
+
+    setSecretForm((prev) => {
+      if (requiredSecretKeys.includes(prev.key_name)) {
+        return prev;
+      }
+      return { ...prev, key_name: requiredSecretKeys[0] };
+    });
+  }, [selectedPackageId, requiredSecretKeysSignature]);
+
   async function handleRunPackage(packageId: number) {
     setFeedback(null);
     try {
@@ -172,13 +219,24 @@ export function PackagesPage() {
     if (!selectedPackageId) {
       return;
     }
+    const keyName = secretForm.key_name.trim();
+    if (!keyName) {
+      setFeedback("Select an environment key before storing the secret value.");
+      return;
+    }
     setFeedback(null);
     try {
-      await platformApi.createPackageSecret(selectedPackageId, secretForm);
+      await platformApi.createPackageSecret(selectedPackageId, {
+        key_name: keyName,
+        value: secretForm.value,
+      });
       await secretsState.refresh();
       await schedulesState.refresh();
       await packagesState.refresh();
-      setSecretForm({ key_name: "", value: "" });
+      setSecretForm({
+        key_name: requiredSecretKeys.length ? keyName : "",
+        value: "",
+      });
       setFeedback("Secret stored successfully.");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to store secret.");
@@ -252,14 +310,15 @@ export function PackagesPage() {
             <div className="package-config-section">
               <div className="config-column">
                 <h3>Secrets</h3>
-                {secretsState.data?.length ? (
+                {secretRows.length ? (
                   <ul className="stack-list">
-                    {secretsState.data.map((secret) => (
-                      <li key={secret.id}>
+                    {secretRows.map((secret) => (
+                      <li key={secret.key_name}>
                         <div>
                           <strong>{secret.key_name}</strong>
-                          <p>Updated {formatTimestamp(secret.updated_at)}</p>
+                          <p>{secret.is_missing ? "Missing value" : `Updated ${formatTimestamp(secret.updated_at)}`}</p>
                         </div>
+                        <StatusBadge status={secret.is_missing ? "blocked" : "active"} />
                       </li>
                     ))}
                   </ul>
@@ -267,7 +326,15 @@ export function PackagesPage() {
                   <EmptyState title="No secrets stored" description="Save required placeholders before enabling schedules that depend on secret injection." />
                 )}
                 <form className="compact-form" onSubmit={handleCreateSecret}>
-                  <input placeholder="Key name" value={secretForm.key_name} onChange={(event) => setSecretForm((prev) => ({ ...prev, key_name: event.target.value }))} required />
+                  {requiredSecretKeys.length ? (
+                    <select value={secretForm.key_name} onChange={(event) => setSecretForm((prev) => ({ ...prev, key_name: event.target.value }))} required>
+                      {requiredSecretKeys.map((key) => (
+                        <option key={key} value={key}>{key}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input placeholder="Environment key" value={secretForm.key_name} onChange={(event) => setSecretForm((prev) => ({ ...prev, key_name: event.target.value }))} required />
+                  )}
                   <input placeholder="Secret value" type="password" value={secretForm.value} onChange={(event) => setSecretForm((prev) => ({ ...prev, value: event.target.value }))} required />
                   <button className="button" type="submit">Store secret</button>
                 </form>
