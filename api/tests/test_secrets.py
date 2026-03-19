@@ -102,8 +102,14 @@ def test_create_secret_package_not_found(client):
 def test_create_secret_duplicate_key(client, sample_package):
     payload = {"key_name": "DUPLICATE_KEY", "value": "first"}
     client.post(f"/packages/{sample_package.id}/secrets", json=payload)
-    resp = client.post(f"/packages/{sample_package.id}/secrets", json=payload)
-    assert resp.status_code == 409
+    resp = client.post(
+        f"/packages/{sample_package.id}/secrets",
+        json={"key_name": "DUPLICATE_KEY", "value": "second"},
+    )
+    assert resp.status_code == 200
+
+    listed = client.get(f"/packages/{sample_package.id}/secrets").json()
+    assert len([secret for secret in listed if secret["key_name"] == "DUPLICATE_KEY"]) == 1
 
 
 def test_create_secret_value_never_returned(client, sample_package):

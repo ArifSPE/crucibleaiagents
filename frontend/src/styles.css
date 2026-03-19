@@ -676,6 +676,30 @@ textarea {
   color: var(--accent-soft);
 }
 
+.package-hold-alert {
+  margin: 0.75rem 0 0.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(247, 200, 95, 0.35);
+  background: rgba(247, 200, 95, 0.1);
+  color: var(--warning);
+}
+
+.log-shell-textarea {
+  min-height: 320px;
+  width: 100%;
+  padding: 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #101012;
+  color: #d2d8de;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.83rem;
+  line-height: 1.45;
+  white-space: pre;
+  resize: vertical;
+}
+
 .inline-link {
   color: var(--accent-soft);
   text-decoration: underline;

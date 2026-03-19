@@ -119,6 +119,46 @@ def test_create_schedule_package_not_found(client):
     assert resp.status_code == 404
 
 
+def test_create_schedule_blocked_when_required_secrets_missing(client, db, sample_package):
+    from schemas.model import PackageSecret
+
+    sample_package.description_json = {
+        "secret_keys": ["API_KEY"],
+        "schedule_requested_enabled": True,
+    }
+    db.add(sample_package)
+    db.add(PackageSecret(package_id=sample_package.id, key_name="API_KEY", encrypted_value=""))
+    db.commit()
+
+    resp = client.post(f"/packages/{sample_package.id}/schedules", json=_INTERVAL_PAYLOAD)
+    assert resp.status_code == 201
+    assert resp.json()["is_active"] is False
+
+
+def test_schedule_auto_activates_after_required_secret_is_set(client, db, sample_package):
+    from schemas.model import PackageSecret
+
+    sample_package.description_json = {
+        "secret_keys": ["API_KEY"],
+        "schedule_requested_enabled": True,
+    }
+    db.add(sample_package)
+    db.add(PackageSecret(package_id=sample_package.id, key_name="API_KEY", encrypted_value=""))
+    db.commit()
+
+    created = client.post(f"/packages/{sample_package.id}/schedules", json=_INTERVAL_PAYLOAD).json()
+    assert created["is_active"] is False
+
+    set_secret = client.post(
+        f"/packages/{sample_package.id}/secrets",
+        json={"key_name": "API_KEY", "value": "super-secret"},
+    )
+    assert set_secret.status_code in (200, 201)
+
+    refreshed = client.get(f"/schedules/{created['id']}").json()
+    assert refreshed["is_active"] is True
+
+
 # ── update schedule ───────────────────────────────────────────────────────────
 
 def test_update_schedule(client, sample_package):

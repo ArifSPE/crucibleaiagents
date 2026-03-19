@@ -16,6 +16,10 @@ from services.run_service import (
     _categorize_event,
     _extract_message,
 )   
+from services.package_service import (
+    _get_missing_required_secret_keys_for_package,
+    _refresh_package_secret_metadata,
+)
 from utils.logger import get_logger, log_event, log_exception
 
 router = APIRouter()
@@ -67,6 +71,18 @@ def create_run(package_id: int):
         pkg = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
         if not pkg:
             raise HTTPException(status_code=404, detail="Package not found")
+
+        missing_secret_keys = _get_missing_required_secret_keys_for_package(db, pkg)
+        if missing_secret_keys:
+            _refresh_package_secret_metadata(pkg, missing_secret_keys)
+            db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Package is on hold until required secrets are set. "
+                    f"Missing secrets: {', '.join(missing_secret_keys)}"
+                ),
+            )
 
         # Create new run record using correct Runs model columns
         new_run = Run(

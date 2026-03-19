@@ -1,11 +1,12 @@
 {
   "name": "react-ollama-agent",
   "version": "1.0.1",
-  "action" : "Update",
+  "action" : "Add",
   "language": "python",
   "description": "ReAct pattern agent using Ollama LLM with Tavily search and tool calling",
   "entrypoint": "src/agent.py",
   "timeout_seconds": 300,
+  "deployment": "container",
   "llm_provider": {
     "note": "This agent uses local Ollama - can be configured to use platform provider instead",
     "use_platform": false

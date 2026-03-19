@@ -72,6 +72,8 @@ export function PackagesPage() {
     () => (runsState.data || []).find((run) => run.id === selectedRunId) || null,
     [runsState.data, selectedRunId],
   );
+  const missingSecretKeys = selectedPackage?.missing_secret_keys || [];
+  const isPackageOnHold = missingSecretKeys.length > 0;
 
   useEffect(() => {
     if (!selectedPackageId && packagesState.data?.length) {
@@ -150,10 +152,15 @@ export function PackagesPage() {
     if (!selectedPackageId) {
       return;
     }
+    if (isPackageOnHold) {
+      setFeedback(`Package is on hold. Set required secrets first: ${missingSecretKeys.join(", ")}`);
+      return;
+    }
     setFeedback(null);
     try {
       await platformApi.createPackageSchedule(selectedPackageId, scheduleForm);
       await schedulesState.refresh();
+      await packagesState.refresh();
       setFeedback("Schedule created successfully.");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to create schedule.");
@@ -169,6 +176,8 @@ export function PackagesPage() {
     try {
       await platformApi.createPackageSecret(selectedPackageId, secretForm);
       await secretsState.refresh();
+      await schedulesState.refresh();
+      await packagesState.refresh();
       setSecretForm({ key_name: "", value: "" });
       setFeedback("Secret stored successfully.");
     } catch (error) {
@@ -209,7 +218,17 @@ export function PackagesPage() {
       <SectionCard
         title={selectedPackage ? `Package #${selectedPackage.id}: ${selectedPackage.name}` : "Package details"}
         subtitle="Configure secrets and schedules, view run events and logs"
-        actions={selectedPackage ? <button className="button" onClick={() => void handleRunPackage(selectedPackage.id)} type="button">Run now</button> : null}
+        actions={selectedPackage ? (
+          <button
+            className="button"
+            onClick={() => void handleRunPackage(selectedPackage.id)}
+            type="button"
+            disabled={isPackageOnHold}
+            title={isPackageOnHold ? "Set required secrets before running this package" : "Run package now"}
+          >
+            Run now
+          </button>
+        ) : null}
       >
         {selectedPackage ? (
           <>
@@ -221,6 +240,13 @@ export function PackagesPage() {
                 <div><strong>Runtime</strong> {selectedPackage.runtime_mode || "batch"}</div>
               </div>
             </div>
+
+            {isPackageOnHold ? (
+              <div className="package-hold-alert">
+                <strong>Package on hold:</strong> required secrets are missing ({missingSecretKeys.join(", ")}).
+                Add these secrets below before running or activating schedules.
+              </div>
+            ) : null}
 
             <div className="package-config-section">
               <div className="config-column">
@@ -291,7 +317,7 @@ export function PackagesPage() {
                       onChange={(event) => setScheduleForm((prev) => ({ ...prev, timestamp: event.target.value }))}
                     />
                   ) : null}
-                  <button className="button" type="submit">Create schedule</button>
+                  <button className="button" type="submit" disabled={isPackageOnHold}>Create schedule</button>
                 </form>
               </div>
             </div>
@@ -405,28 +431,15 @@ export function PackagesPage() {
                         Showing logs for run #{selectedRun.id}
                       </div>
                       {runLogsState.data?.length ? (
-                        <div className="table-wrap">
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th>Time</th>
-                                <th>Stream</th>
-                                <th>Level</th>
-                                <th>Line</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {runLogsState.data.map((log) => (
-                                <tr key={log.id}>
-                                  <td>{formatTimestamp(log.ts)}</td>
-                                  <td>{log.stream}</td>
-                                  <td>{log.level}</td>
-                                  <td>{log.line}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                        <textarea
+                          className="log-shell-textarea"
+                          readOnly
+                          value={runLogsState.data
+                            .map(
+                              (log) => `${formatTimestamp(log.ts)} ${log.stream.toUpperCase()} ${log.level.toUpperCase()} | ${log.line}`,
+                            )
+                            .join("\n")}
+                        />
                       ) : (
                         <EmptyState title="No logs for selected run" description="Select a run from the Runs tab to view its logs here." />
                       )}

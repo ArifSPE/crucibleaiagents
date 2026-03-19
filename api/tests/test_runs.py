@@ -52,6 +52,22 @@ def test_create_run_package_not_found(client):
     assert resp.status_code == 404
 
 
+def test_create_run_blocked_when_required_secrets_missing(client, db, sample_package):
+    from schemas.model import PackageSecret
+
+    sample_package.description_json = {
+        "secret_keys": ["API_KEY"],
+        "schedule_requested_enabled": True,
+    }
+    db.add(sample_package)
+    db.add(PackageSecret(package_id=sample_package.id, key_name="API_KEY", encrypted_value=""))
+    db.commit()
+
+    resp = client.post(f"/runs?package_id={sample_package.id}")
+    assert resp.status_code == 409
+    assert "Package is on hold" in str(resp.json().get("detail", ""))
+
+
 def test_create_run_inherits_package_timeout(client, sample_package):
     resp = client.post(f"/runs?package_id={sample_package.id}")
     assert resp.json()["timeout_seconds"] == sample_package.timeout_seconds

@@ -137,3 +137,56 @@ def _get_missing_required_secret_keys(db: Session, package_id: int, manifest: Di
             missing.append(key_name)
 
     return sorted(missing)
+
+
+def _get_required_secret_keys_from_package(package: AgentPackage) -> list[str]:
+    """Return normalized required secret keys declared in package metadata."""
+    metadata = package.description_json if isinstance(package.description_json, dict) else {}
+    raw_keys = metadata.get("secret_keys", [])
+    if not isinstance(raw_keys, list):
+        return []
+
+    normalized = {
+        str(key).strip()
+        for key in raw_keys
+        if isinstance(key, str) and str(key).strip()
+    }
+    return sorted(normalized)
+
+
+def _get_missing_required_secret_keys_for_package(db: Session, package: AgentPackage) -> list[str]:
+    """Return required secret keys that do not have values for a package."""
+    required_keys = _get_required_secret_keys_from_package(package)
+    if not required_keys:
+        return []
+
+    secret_rows = db.query(PackageSecret).filter(PackageSecret.package_id == package.id).all()
+    key_to_value = {row.key_name: row.encrypted_value for row in secret_rows}
+
+    missing = []
+    for key_name in required_keys:
+        value = key_to_value.get(key_name)
+        if value is None or str(value).strip() == "":
+            missing.append(key_name)
+
+    return sorted(missing)
+
+
+def _refresh_package_secret_metadata(package: AgentPackage, missing_secret_keys: list[str]) -> Dict[str, Any]:
+    """Refresh package metadata flags driven by required secret readiness."""
+    metadata: Dict[str, Any] = (
+        package.description_json if isinstance(package.description_json, dict) else {}
+    )
+
+    requested_schedule_enabled = metadata.get("schedule_requested_enabled")
+    if requested_schedule_enabled is None:
+        requested_schedule_enabled = bool(package.schedule_enables)
+
+    normalized_missing = sorted({str(key).strip() for key in missing_secret_keys if str(key).strip()})
+
+    metadata["schedule_requested_enabled"] = bool(requested_schedule_enabled)
+    metadata["missing_secret_keys"] = normalized_missing
+    metadata["schedule_activation_blocked"] = bool(normalized_missing and requested_schedule_enabled)
+
+    package.description_json = metadata
+    return metadata
