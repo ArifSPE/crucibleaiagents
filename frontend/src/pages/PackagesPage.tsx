@@ -76,6 +76,10 @@ export function PackagesPage() {
   const requiredSecretKeysSignature = requiredSecretKeys.join("|");
   const missingSecretKeys = selectedPackage?.missing_secret_keys || [];
   const isPackageOnHold = missingSecretKeys.length > 0;
+  const secretsForSelectedPackage = useMemo(
+    () => (secretsState.data || []).filter((secret) => secret.package_id === selectedPackageId),
+    [secretsState.data, selectedPackageId],
+  );
   const secretKeyOptions = useMemo(() => {
     const keys = new Set<string>();
     for (const key of requiredSecretKeys) {
@@ -90,20 +94,20 @@ export function PackagesPage() {
         keys.add(normalized);
       }
     }
-    for (const secret of secretsState.data || []) {
+    for (const secret of secretsForSelectedPackage) {
       const normalized = String(secret.key_name).trim();
       if (normalized) {
         keys.add(normalized);
       }
     }
     return Array.from(keys);
-  }, [missingSecretKeys, requiredSecretKeys, secretsState.data]);
+  }, [missingSecretKeys, requiredSecretKeys, secretsForSelectedPackage]);
   const secretKeyOptionsSignature = secretKeyOptions.join("|");
   const secretRows = useMemo(() => {
-    const secretByKey = new Map((secretsState.data || []).map((secret) => [secret.key_name, secret]));
+    const secretByKey = new Map(secretsForSelectedPackage.map((secret) => [secret.key_name, secret]));
 
     if (!requiredSecretKeys.length) {
-      return (secretsState.data || []).map((secret) => ({
+      return secretsForSelectedPackage.map((secret) => ({
         key_name: secret.key_name,
         updated_at: secret.updated_at,
         is_missing: false,
@@ -119,7 +123,7 @@ export function PackagesPage() {
       };
     });
 
-    for (const secret of secretsState.data || []) {
+    for (const secret of secretsForSelectedPackage) {
       if (!requiredSecretKeys.includes(secret.key_name)) {
         rows.push({
           key_name: secret.key_name,
@@ -130,7 +134,7 @@ export function PackagesPage() {
     }
 
     return rows;
-  }, [missingSecretKeys, requiredSecretKeys, secretsState.data]);
+  }, [missingSecretKeys, requiredSecretKeys, secretsForSelectedPackage]);
 
   useEffect(() => {
     if (!selectedPackageId && packagesState.data?.length) {
@@ -260,7 +264,7 @@ export function PackagesPage() {
         key_name: secretKeyOptions.length ? keyName : "",
         value: "",
       });
-      setFeedback("Secret stored successfully.");
+      window.alert(`Secret '${keyName}' stored successfully.`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to store secret.");
     }
@@ -331,37 +335,39 @@ export function PackagesPage() {
             ) : null}
 
             <div className="package-config-section">
-              <div className="config-column">
-                <h3>Secrets</h3>
-                {secretRows.length ? (
-                  <ul className="stack-list">
-                    {secretRows.map((secret) => (
-                      <li key={secret.key_name}>
-                        <div>
-                          <strong>{secret.key_name}</strong>
-                          <p>{secret.is_missing ? "Missing value" : `Updated ${formatTimestamp(secret.updated_at)}`}</p>
-                        </div>
-                        <StatusBadge status={secret.is_missing ? "blocked" : "active"} />
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState title="No secrets stored" description="Save required placeholders before enabling schedules that depend on secret injection." />
-                )}
-                <form className="compact-form" onSubmit={handleCreateSecret}>
-                  {secretKeyOptions.length ? (
-                    <select value={secretForm.key_name} onChange={(event) => setSecretForm((prev) => ({ ...prev, key_name: event.target.value }))} required>
-                      {secretKeyOptions.map((key) => (
-                        <option key={key} value={key}>{key}</option>
+              {(requiredSecretKeys.length > 0 || secretsForSelectedPackage.length > 0 || secretsState.loading) ? (
+                <div className="config-column">
+                  <h3>Secrets</h3>
+                  {secretRows.length ? (
+                    <ul className="stack-list">
+                      {secretRows.map((secret) => (
+                        <li key={secret.key_name}>
+                          <div>
+                            <strong>{secret.key_name}</strong>
+                            <p>{secret.is_missing ? "Missing value" : `Updated ${formatTimestamp(secret.updated_at)}`}</p>
+                          </div>
+                          <StatusBadge status={secret.is_missing ? "blocked" : "active"} />
+                        </li>
                       ))}
-                    </select>
+                    </ul>
                   ) : (
-                    <input placeholder="Environment key" value={secretForm.key_name} onChange={(event) => setSecretForm((prev) => ({ ...prev, key_name: event.target.value }))} required />
+                    <EmptyState title="No secrets stored" description="Save required placeholders before enabling schedules that depend on secret injection." />
                   )}
-                  <input placeholder="Secret value" type="password" value={secretForm.value} onChange={(event) => setSecretForm((prev) => ({ ...prev, value: event.target.value }))} required />
-                  <button className="button" type="submit">Store secret</button>
-                </form>
-              </div>
+                  <form className="compact-form" onSubmit={handleCreateSecret}>
+                    {secretKeyOptions.length ? (
+                      <select value={secretForm.key_name} onChange={(event) => setSecretForm((prev) => ({ ...prev, key_name: event.target.value }))} required>
+                        {secretKeyOptions.map((key) => (
+                          <option key={key} value={key}>{key}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input placeholder="Environment key" value={secretForm.key_name} onChange={(event) => setSecretForm((prev) => ({ ...prev, key_name: event.target.value }))} required />
+                    )}
+                    <input placeholder="Secret value" type="password" value={secretForm.value} onChange={(event) => setSecretForm((prev) => ({ ...prev, value: event.target.value }))} required />
+                    <button className="button" type="submit">Store secret</button>
+                  </form>
+                </div>
+              ) : null}
 
               <div className="config-column">
                 <h3>Schedules</h3>
