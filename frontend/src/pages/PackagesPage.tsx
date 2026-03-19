@@ -299,8 +299,65 @@ export function PackagesPage() {
             <Tabs
               tabs={[
                 {
+                  id: "runs",
+                  label: "Runs",
+                  content: runsState.data?.length ? (
+                    <div className="table-wrap">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Run</th>
+                            <th>Status</th>
+                            <th>Mode</th>
+                            <th>Started</th>
+                            <th>Error</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {runsState.data.slice(0, 8).map((run) => (
+                            <tr className={run.id === selectedRunId ? "selected-row" : ""} key={run.id}>
+                              <td>#{run.id}</td>
+                              <td><StatusBadge status={run.status} /></td>
+                              <td>{run.runtime_mode || "batch"}</td>
+                              <td>{formatTimestamp(run.started_at)}</td>
+                              <td>{run.error || "-"}</td>
+                              <td>
+                                <div className="table-actions">
+                                  <button
+                                    className="button button--small"
+                                    onClick={() => {
+                                      setSelectedRunId(run.id);
+                                      setRunDrilldownView("events");
+                                    }}
+                                    type="button"
+                                  >
+                                    Events
+                                  </button>
+                                  <button
+                                    className="button button--small"
+                                    onClick={() => {
+                                      setSelectedRunId(run.id);
+                                      setRunDrilldownView("logs");
+                                    }}
+                                    type="button"
+                                  >
+                                    Logs
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <EmptyState title="No runs for this package" description="Trigger a run from the Run now button to populate run history." />
+                  ),
+                },
+                {
                   id: "events",
-                  label: "Recent events",
+                  label: "Events",
                   content: selectedRun ? (
                     <div>
                       <div className="page-state-subtitle">
@@ -332,16 +389,16 @@ export function PackagesPage() {
                           </table>
                         </div>
                       ) : (
-                        <EmptyState title="No events for selected run" description="Create a run using the 'Run now' button, then the latest events will appear here." />
+                        <EmptyState title="No events for selected run" description="Select a run from the Runs tab to view its events." />
                       )}
                     </div>
                   ) : (
-                    <EmptyState title="Select a run first" description="Create a run using the 'Run now' button to populate events here." />
+                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Events on a run to view its events here." />
                   ),
                 },
                 {
                   id: "logs",
-                  label: "Recent logs",
+                  label: "Logs",
                   content: selectedRun ? (
                     <div>
                       <div className="page-state-subtitle">
@@ -371,11 +428,11 @@ export function PackagesPage() {
                           </table>
                         </div>
                       ) : (
-                        <EmptyState title="No logs for selected run" description="Create a run using the 'Run now' button, then the latest logs will appear here." />
+                        <EmptyState title="No logs for selected run" description="Select a run from the Runs tab to view its logs here." />
                       )}
                     </div>
                   ) : (
-                    <EmptyState title="Select a run first" description="Create a run using the 'Run now' button to populate logs here." />
+                    <EmptyState title="Select a run first" description="Go to the Runs tab and click Logs on a run to view its logs here." />
                   ),
                 },
               ]}
