@@ -5,7 +5,6 @@ import { SectionCard } from "../components/SectionCard";
 import { StatusBadge } from "../components/StatusBadge";
 import { Tabs } from "../components/Tabs";
 import { usePolling } from "../hooks/usePolling";
-import { formatDuration } from "../utils/format";
 import { platformApi } from "../services/platformApi";
 import type { PackageSchedule, PackageSecret, RunSummary, ScheduleUpsertRequest, SecretUpsertRequest } from "../types/api";
 import { formatTimestamp } from "../utils/format";
@@ -344,7 +343,8 @@ export function PackagesPage() {
                         <li key={secret.key_name}>
                           <div>
                             <strong>{secret.key_name}</strong>
-                            <p>{secret.is_missing ? "Missing value" : `Updated ${formatTimestamp(secret.updated_at)}`}</p>
+                            <p>{secret.is_missing ? "Value: missing" : "Value: ...."}</p>
+                            <p>{secret.is_missing ? "Set this secret to enable runs and schedules." : `Updated ${formatTimestamp(secret.updated_at)}`}</p>
                           </div>
                           <StatusBadge status={secret.is_missing ? "blocked" : "active"} />
                         </li>

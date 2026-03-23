@@ -19,7 +19,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from api.utils.logger import get_logger, log_event, log_exception
 from worker.scheduler import check_and_create_scheduled_runs
-from worker.worker import _claim_next_run_for, _enqueue_autostart_daemon_runs, _execute_run
+from worker.worker import (
+    _claim_next_run_for,
+    _enqueue_autostart_daemon_runs,
+    _execute_run,
+    wait_for_database_ready,
+)
 from worker.daemon_monitor import start_daemon_monitor_loop
 
 LOGGER = get_logger("worker.container")
@@ -33,6 +38,9 @@ DAEMON_AUTOSTART_CHECK_INTERVAL = int(os.getenv("DAEMON_AUTOSTART_CHECK_INTERVAL
 
 
 def main() -> None:
+    if not wait_for_database_ready():
+        return
+
     # Auto-enqueue daemon packages marked for auto-start
     _enqueue_autostart_daemon_runs("container")
 

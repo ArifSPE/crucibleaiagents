@@ -196,6 +196,25 @@ def add_run_event(run_id: int, event: RunEventIn):
             payload_jason=json.dumps(event.payload or {}),
         )
         db.add(db_event)
+
+        # Mirror "log" type events to run_logs so they appear in the Logs tab.
+        # Agents post log.info() / log.warning() calls as type="log" events via
+        # the platform SDK (ApiLogHandler). Without this, the Logs tab is empty
+        # for container/daemon runs that don't pipe stdout/stderr.
+        if event.type == "log":
+            payload_data = event.payload or {}
+            log_line = payload_data.get("message") or event.message or ""
+            log_level = (payload_data.get("level") or event.level or "INFO").upper()
+            if log_line:
+                db_log = RunLogs(
+                    run_id=run_id,
+                    stream="sdk",
+                    level=log_level,
+                    line=log_line,
+                    section="agent",
+                )
+                db.add(db_log)
+
         db.commit()
         db.refresh(db_event)
 

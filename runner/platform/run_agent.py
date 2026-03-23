@@ -97,6 +97,20 @@ def build_agent_base_environment(process_env: dict) -> dict:
     return {k: v for k, v in process_env.items() if k not in blocked_keys}
 
 
+def resolve_manifest_env_value(raw_value, process_env: dict) -> str:
+    """Resolve manifest env values, supporting {secrets.KEY} placeholders."""
+    if not isinstance(raw_value, str):
+        return str(raw_value)
+
+    if raw_value.startswith("{secrets.") and raw_value.endswith("}"):
+        key_name = raw_value[len("{secrets."):-1].strip()
+        if not key_name:
+            return ""
+        return str(process_env.get(key_name, ""))
+
+    return raw_value
+
+
 def main():
     pkg_dir_path = os.environ.get("PACKAGE_DIR")
     if not pkg_dir_path:
@@ -144,7 +158,7 @@ def main():
     manifest_env = manifest.get("environment") or {}
     if isinstance(manifest_env, dict):
         for k, v in manifest_env.items():
-            env[str(k)] = str(v)
+            env[str(k)] = resolve_manifest_env_value(v, env)
 
     if language == "python":
         cmd = [sys.executable, str(entry_path)]

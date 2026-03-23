@@ -500,7 +500,7 @@ Secrets are automatically injected at runtime. Never commit API keys or credenti
 | `AGENTFLOW_DAEMON_DOCKER_NETWORK` | string | `crucibleaiagents-daemon` | Docker network for daemon container isolation |
 | `WORKSPACE_HOST_PATH` | path | — | Host path mounted as workspace (for agent access) |
 | `WORKSPACE_PACKAGE_HOST_PATH` | path | — | Host path for packages (for agent access) |
-| `DAEMON_API_BASE_URL` | URL | `http://host.docker.internal:8000` | API URL accessible from daemon containers |
+| `DAEMON_API_BASE_URL` | URL | `http://host.docker.internal:8080` | API URL accessible from daemon containers |
 
 ### Security
 

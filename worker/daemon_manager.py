@@ -36,7 +36,7 @@ DOCKER_NETWORK = os.getenv("AGENTFLOW_DOCKER_NETWORK", "crucibleaiagents_default
 DAEMON_DOCKER_NETWORK = os.getenv("AGENTFLOW_DAEMON_DOCKER_NETWORK", "crucibleaiagents-daemon")
 RUNNER_IMAGE = os.getenv("RUNNER_IMAGE", "crucibleaiagents-runner:latest")
 API_BASE_URL = os.getenv("RUNNER_API_BASE_URL", "http://api:8000")
-DAEMON_API_BASE_URL = os.getenv("DAEMON_API_BASE_URL", "http://host.docker.internal:8000")
+DAEMON_API_BASE_URL = os.getenv("DAEMON_API_BASE_URL", "http://host.docker.internal:8080")
 DOCKER_HOST = os.getenv("DOCKER_HOST", "tcp://docker-proxy:2375")
 
 LOGGER = get_logger("worker.daemon_manager")
@@ -120,7 +120,7 @@ def get_active_daemon_runs() -> List[Dict]:
 def update_daemon_run(run_id: int, **kwargs) -> None:
     """Update daemon run fields. Prevents SQL injection by whitelisting columns."""
     allowed_columns = {"status", "container_id", "restart_count", "last_health_check", 
-                      "exit_code", "error", "stopped_at", "exposed_port"}
+                      "exit_code", "error", "stopped_at", "completed_at", "exposed_port"}
     unknown = set(kwargs) - allowed_columns
     if unknown:
         raise ValueError(f"update_daemon_run: disallowed column(s): {unknown}")
@@ -217,20 +217,78 @@ def map_storage_path_to_runner_path(storage_path: str) -> str:
     return f"/workspace/package/deployed/{os.path.basename(normalized)}"
 
 
+def load_package_secret_environment(package_id: int) -> Dict[str, str]:
+    """Load decrypted package secrets as daemon container env variables."""
+    with db_session() as db:
+        rows = db.execute(
+            text("""
+                SELECT key_name, encrypted_value
+                FROM package_secrets
+                WHERE package_id = :package_id
+            """),
+            {"package_id": package_id},
+        ).fetchall()
+        secret_pairs = [
+            (str(row.key_name or "").strip(), str(row.encrypted_value or "").strip())
+            for row in rows
+        ]
+
+    if not secret_pairs:
+        return {}
+
+    try:
+        from api.utils.secrets_manager import get_secrets_manager
+        decryptor = get_secrets_manager()
+    except Exception:
+        log_event(
+            LOGGER,
+            30,
+            "daemon.secrets_manager_unavailable",
+            "Secrets manager unavailable; skipping secret env injection",
+            package_id=package_id,
+        )
+        return {}
+
+    resolved: Dict[str, str] = {}
+
+    for key_name, encrypted_value in secret_pairs:
+        if not key_name or not encrypted_value:
+            continue
+        try:
+            resolved[key_name] = decryptor.decrypt(encrypted_value)
+        except Exception:
+            log_event(
+                LOGGER,
+                30,
+                "daemon.secret_decrypt_failed",
+                "Failed to decrypt package secret; skipping key",
+                package_id=package_id,
+                key_name=key_name,
+            )
+
+    return resolved
+
+
 def start_daemon_container(run_info: Dict) -> tuple[str, Optional[int]]:
     """Start daemon container with proper isolation and security.
-    
+
     Returns: (container_id, exposed_port)
     """
     run_id = run_info["id"]
     package_id = run_info["package_id"]
     storage_path = run_info["storage_path"]
     exposed_port = run_info.get("exposed_port")
-    
+
     container_name = f"daemon-pkg{package_id}-run{run_id}-{uuid.uuid4().hex[:8]}"
     runner_path = map_storage_path_to_runner_path(storage_path)
-    
+
     # Build docker run command
+    runner_api_token = (
+        os.getenv("AGENTFLOW_RUNNER_API_TOKEN")
+        or os.getenv("AGENTFLOW_API_TOKEN")
+        or os.getenv("API_TOKEN", "")
+    )
+
     cmd = [
         "docker", "--host", DOCKER_HOST,
         "run", "-d",
@@ -246,11 +304,39 @@ def start_daemon_container(run_info: Dict) -> tuple[str, Optional[int]]:
         "-e", f"PACKAGE_DIR={runner_path}",
         "-v", f"{WORKSPACE_PACKAGE_HOST_PATH}:/workspace/package",
     ]
-    
+
+    if runner_api_token:
+        cmd.extend(["-e", f"AGENTFLOW_API_TOKEN={runner_api_token}"])
+
+    secret_env = run_info.get("secret_env") if isinstance(run_info.get("secret_env"), dict) else None
+    if secret_env is None:
+        secret_env = load_package_secret_environment(package_id)
+
+    # Add secrets with validation
+    secret_count = 0
+    for key_name, value in secret_env.items():
+        if key_name and value:
+            cmd.extend(["-e", f"{key_name}={value}"])
+            secret_count += 1
+
+    if secret_count > 0:
+        log_event(
+            LOGGER, 20, "daemon.secrets.injected",
+            "Secrets injected into daemon container environment",
+            run_id=run_id, package_id=package_id,
+            secret_count=secret_count,
+        )
+    elif secret_env:
+        log_event(
+            LOGGER, 30, "daemon.secrets.none_injected",
+            "Secret env was present but no valid key/value pairs were injected",
+            run_id=run_id, package_id=package_id,
+        )
+
     # Add port mapping if exposed_port configured
     if exposed_port and 1 <= exposed_port <= 65535:
         cmd.extend(["-p", f"{exposed_port}:{exposed_port}"])
-    
+
     # Add health check if configured
     health_config = run_info.get("health_check_config", {})
     if health_config and health_config.get("enabled"):
@@ -263,12 +349,12 @@ def start_daemon_container(run_info: Dict) -> tuple[str, Optional[int]]:
             "--health-timeout", timeout,
             "--health-retries", "3",
         ])
-    
+
     cmd.append(RUNNER_IMAGE)
-    
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode != 0:
             log_event(
                 LOGGER, 40, "daemon.start.failed",
@@ -280,9 +366,9 @@ def start_daemon_container(run_info: Dict) -> tuple[str, Optional[int]]:
                 raise RuntimeError(f"Failed to start daemon: {result.stderr}")
             except RuntimeError:
                 raise
-        
+
         container_id = result.stdout.strip()
-        
+
         log_event(
             LOGGER, 20, "daemon.started",
             "Daemon container started successfully",
@@ -290,9 +376,9 @@ def start_daemon_container(run_info: Dict) -> tuple[str, Optional[int]]:
             container_id=container_id[:12],
             exposed_port=exposed_port,
         )
-        
+
         return container_id, exposed_port
-        
+
     except Exception as e:
         log_exception(
             LOGGER, "daemon.start.exception",
@@ -302,12 +388,78 @@ def start_daemon_container(run_info: Dict) -> tuple[str, Optional[int]]:
         raise
 
 
+def capture_daemon_logs(run_id: int, container_id: str, since: Optional[str] = None) -> int:
+    """Capture and store daemon container logs in database.
+
+    Args:
+        run_id: The run ID for storing logs
+        container_id: The Docker container ID
+        since: RFC 3339 timestamp to read logs from (e.g., epoch time or timestamp)
+
+    Returns:
+        Number of log lines captured
+    """
+    try:
+        from sqlalchemy import text
+
+        # Build docker logs command
+        cmd = ["docker", "--host", DOCKER_HOST, "logs", container_id]
+        if since:
+            cmd.extend(["--since", since])
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+
+        if result.returncode != 0:
+            return 0
+
+        # Parse logs and store each line
+        logs_stored = 0
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+
+            # Store log line in database
+            with db_session() as db:
+                db.execute(text("""
+                    INSERT INTO run_logs(run_id, ts, stream, level, line, section)
+                    VALUES (:run_id, :ts, :stream, :level, :line, :section)
+                """), {
+                    "run_id": run_id,
+                    "ts": _utc_now(),
+                    "stream": "stdout",
+                    "level": "INFO",
+                    "line": line,
+                    "section": "daemon",
+                })
+            logs_stored += 1
+
+        if logs_stored > 0:
+            log_event(
+                LOGGER, 20, "daemon.logs.captured",
+                "Captured daemon container logs",
+                run_id=run_id,
+                container_id=container_id[:12],
+                log_count=logs_stored,
+            )
+
+        return logs_stored
+
+    except Exception as e:
+        log_exception(
+            LOGGER, "daemon.logs.capture_error",
+            "Error capturing daemon logs",
+            run_id=run_id,
+            container_id=container_id[:12],
+        )
+        return 0
+
+
 def remove_daemon_container(container_id: str) -> bool:
     """Remove daemon container. Returns True if successful."""
     try:
         cmd = ["docker", "--host", DOCKER_HOST, "rm", "-f", container_id]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-        
+
         if result.returncode == 0:
             log_event(LOGGER, 20, "daemon.container.removed", "Container removed", container_id=container_id[:12])
             return True

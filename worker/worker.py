@@ -41,6 +41,9 @@ from worker.daemon_manager import (  # noqa: E402
 LOGGER = get_logger("worker")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "5"))
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "10"))
+DOCKER_NETWORK = os.getenv("AGENTFLOW_DOCKER_NETWORK", "crucibleaiagents_default")
+DB_STARTUP_MAX_WAIT_SECONDS = int(os.getenv("DB_STARTUP_MAX_WAIT_SECONDS", "90"))
+DB_STARTUP_RETRY_INTERVAL_SECONDS = float(os.getenv("DB_STARTUP_RETRY_INTERVAL_SECONDS", "2"))
 
 
 @contextmanager
@@ -58,6 +61,63 @@ def db_session() -> Generator[Session, None, None]:
 
 def _utc_now():
     return datetime.now(timezone.utc)
+
+
+def wait_for_database_ready(
+    max_wait_seconds: Optional[float] = None,
+    retry_interval_seconds: Optional[float] = None,
+) -> bool:
+    """Wait for database connectivity before starting worker loops.
+
+    Returns True when a simple query succeeds, False when timeout is reached.
+    """
+    max_wait = float(max_wait_seconds if max_wait_seconds is not None else DB_STARTUP_MAX_WAIT_SECONDS)
+    retry_interval = float(
+        retry_interval_seconds if retry_interval_seconds is not None else DB_STARTUP_RETRY_INTERVAL_SECONDS
+    )
+    retry_interval = max(0.2, retry_interval)
+    deadline = time.monotonic() + max_wait
+
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            with db_session() as db:
+                db.execute(text("SELECT 1"))
+
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "worker.db_ready",
+                "Database is ready for worker startup",
+                attempts=attempt,
+            )
+            return True
+        except OperationalError as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                log_exception(
+                    LOGGER,
+                    "worker.db_startup_timeout",
+                    "Database did not become ready within startup timeout",
+                    attempts=attempt,
+                    max_wait_seconds=max_wait,
+                    error=str(exc),
+                )
+                return False
+
+            if attempt == 1 or attempt % 5 == 0:
+                log_event(
+                    LOGGER,
+                    logging.WARNING,
+                    "worker.db_not_ready",
+                    "Database not ready yet; retrying",
+                    attempts=attempt,
+                    retry_interval_seconds=retry_interval,
+                    remaining_seconds=round(max(remaining, 0.0), 2),
+                )
+
+            time.sleep(min(retry_interval, max(remaining, 0.0)))
 
 
 def _claim_next_run_for(deployment: Optional[str] = None) -> Optional[dict]:
@@ -296,6 +356,80 @@ def _set_run_container_info(run_id: int, container_id: Optional[str] = None, exp
         })
 
 
+def _load_package_secret_environment(package_id: int) -> dict[str, str]:
+    """Load decrypted package secrets as environment variables."""
+    with db_session() as db:
+        rows = db.execute(
+            text("""
+                SELECT key_name, encrypted_value
+                FROM package_secrets
+                WHERE package_id = :package_id
+            """),
+            {"package_id": package_id},
+        ).fetchall()
+        secret_pairs = [
+            (str(row.key_name or "").strip(), str(row.encrypted_value or "").strip())
+            for row in rows
+        ]
+
+    if not secret_pairs:
+        return {}
+
+    resolved: dict[str, str] = {}
+    try:
+        from api.utils.secrets_manager import get_secrets_manager
+        decryptor = get_secrets_manager()
+    except Exception as exc:
+        log_event(
+            LOGGER,
+            logging.WARNING,
+            "worker.secrets_manager_unavailable",
+            "Secrets manager unavailable; skipping secret env injection",
+            package_id=package_id,
+            error=str(exc)[:100],
+        )
+        return {}
+
+    for key_name, encrypted_value in secret_pairs:
+        if not key_name or not encrypted_value:
+            continue
+        try:
+            decrypted_value = decryptor.decrypt(encrypted_value)
+            if decrypted_value:
+                resolved[key_name] = decrypted_value
+            else:
+                log_event(
+                    LOGGER,
+                    logging.WARNING,
+                    "worker.secret_decrypt_empty",
+                    "Decrypted secret value is empty",
+                    package_id=package_id,
+                    key_name=key_name,
+                )
+        except Exception as exc:
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "worker.secret_decrypt_failed",
+                "Failed to decrypt package secret; skipping key",
+                package_id=package_id,
+                key_name=key_name,
+                error=str(exc)[:100],
+            )
+
+    if resolved:
+        log_event(
+            LOGGER,
+            logging.DEBUG,
+            "worker.secrets_loaded",
+            f"Loaded {len(resolved)} package secrets",
+            package_id=package_id,
+            secret_keys=list(resolved.keys()),
+        )
+
+    return resolved
+
+
 def _resolve_workspace(storage_path: Optional[str]) -> Path:
     if storage_path:
         p = Path(storage_path)
@@ -374,11 +508,35 @@ def _execute_local(run_id: int, package: dict, workspace: Path, timeout_seconds:
     _insert_event(run_id, "worker.run_start", message="Local run execution started", payload={"cmd": cmd})
 
     child_env = os.environ.copy()
-    child_env.setdefault("RUN_ID", str(run_id))
-    child_env.setdefault(
-        "API_BASE_URL",
-        os.getenv("RUNNER_API_BASE_URL") or os.getenv("API_BASE_URL") or "http://localhost:8080",
+    # Always override — never inherit a stale RUN_ID or wrong API_BASE_URL from the parent env.
+    child_env["RUN_ID"] = str(run_id)
+    child_env["API_BASE_URL"] = (
+        os.environ.get("RUNNER_API_BASE_URL")
+        or "http://localhost:8080"
     )
+
+    # Inject runner platform directory so agents can import platform_sdk and
+    # so sitecustomize.py is auto-loaded (installs the API log handler before
+    # any user code runs). Only needed for Python; harmless for others.
+    if package.get("language", "python") == "python":
+        platform_dir = str(REPO_ROOT / "runner" / "platform")
+        existing_py_path = child_env.get("PYTHONPATH", "")
+        child_env["PYTHONPATH"] = (
+            f"{platform_dir}{os.pathsep}{existing_py_path}"
+            if existing_py_path
+            else platform_dir
+        )
+    try:
+        child_env.update(_load_package_secret_environment(package["id"]))
+    except Exception as exc:
+        log_event(
+            LOGGER,
+            logging.WARNING,
+            "worker.secret_env_load_failed",
+            "Failed to load package secret env for local run",
+            package_id=package.get("id"),
+            error=str(exc)[:100],
+        )
 
     process = subprocess.Popen(
         cmd,
@@ -429,12 +587,20 @@ def _execute_container(run_id: int, package: dict, workspace: Path, timeout_seco
     if host_workspace_root and workspace_mount.startswith("/workspace/"):
         workspace_mount = f"{host_workspace_root.rstrip('/')}/{workspace_mount[len('/workspace/'):]}"
 
+    runner_api_token = (
+        os.getenv("AGENTFLOW_RUNNER_API_TOKEN")
+        or os.getenv("AGENTFLOW_API_TOKEN")
+        or os.getenv("API_TOKEN", "")
+    )
+
     cmd = [
         "docker",
         "run",
         "--rm",
         "--name",
         container_name,
+        "--network",
+        DOCKER_NETWORK,
         "-e",
         f"RUN_ID={run_id}",
         "-e",
@@ -443,8 +609,40 @@ def _execute_container(run_id: int, package: dict, workspace: Path, timeout_seco
         "PACKAGE_DIR=/workspace/code",
         "-v",
         f"{workspace_mount}:/workspace/code",
-        runner_image,
     ]
+
+    if runner_api_token:
+        cmd.extend(["-e", f"AGENTFLOW_API_TOKEN={runner_api_token}"])
+
+    try:
+        secret_env = _load_package_secret_environment(package["id"])
+    except Exception as exc:
+        log_event(
+            LOGGER,
+            logging.WARNING,
+            "worker.secret_env_load_failed",
+            "Failed to load package secret env for container run",
+            package_id=package.get("id"),
+            error=str(exc)[:100],
+        )
+        secret_env = {}
+
+    secret_count = 0
+    for key_name, value in secret_env.items():
+        if key_name and value:
+            cmd.extend(["-e", f"{key_name}={value}"])
+            secret_count += 1
+
+    if secret_count > 0:
+        _insert_event(
+            run_id,
+            "worker.container_secrets_injected",
+            level="INFO",
+            message=f"Injected {secret_count} environment secrets into container",
+            payload={"secret_count": secret_count, "secret_keys": list(secret_env.keys())},
+        )
+
+    cmd.append(runner_image)
 
     _set_run_container_info(run_id, container_id=container_name, exposed_port=None)
     _insert_event(
@@ -519,6 +717,19 @@ def _execute_container_daemon(run_id: int, package: dict, run: dict, workspace: 
             "restart_policy": package.get("restart_policy", "on-failure"),
             "timeout_seconds": package.get("timeout_seconds", 60),
         }
+
+        try:
+            run_info["secret_env"] = _load_package_secret_environment(package.get("id"))
+        except Exception as exc:
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "worker.secret_env_load_failed",
+                "Failed to load package secret env for daemon run",
+                package_id=package.get("id"),
+                error=str(exc)[:100],
+            )
+            run_info["secret_env"] = {}
         
         _insert_event(
             run_id,
@@ -628,6 +839,9 @@ def _execute_run(run: dict):
 
 
 def main():
+    if not wait_for_database_ready():
+        return
+
     _enqueue_autostart_daemon_runs(None)
     log_event(
         LOGGER,
