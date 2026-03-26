@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+from fastapi import HTTPException
 from schemas.model import AgentPackage, PackageSchedule
 from utils.dependency import db_session
 from schemas.schedules import ScheduleConfig
@@ -135,3 +136,142 @@ def _load_scheduled_packages():
     except Exception as e:
         log_exception(_LOGGER, "startup.schedules_load_error",
                       "Error loading scheduled packages", error=str(e))
+
+
+def serialize_schedule(s: PackageSchedule) -> dict:
+    return {
+        "id": s.id,
+        "package_id": s.package_id,
+        "schedule_type": s.schedule_type,
+        "schedule_config": s.schedule_config,
+        "is_active": s.is_active,
+        "last_run_time": s.last_run_time.isoformat() if s.last_run_time else None,
+        "next_run_time": s.next_run_time.isoformat() if s.next_run_time else None,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+    }
+
+
+def list_schedules(db: Any) -> list[PackageSchedule]:
+    return db.query(PackageSchedule).order_by(PackageSchedule.id.desc()).all()
+
+
+def get_schedule_or_404(db: Any, schedule_id: int) -> PackageSchedule:
+    schedule = db.query(PackageSchedule).filter(PackageSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule
+
+
+def get_package_or_404(db: Any, package_id: int) -> AgentPackage:
+    pkg = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return pkg
+
+
+def list_schedules_for_package(db: Any, package_id: int) -> list[PackageSchedule]:
+    get_package_or_404(db, package_id)
+    return db.query(PackageSchedule).filter(PackageSchedule.package_id == package_id).order_by(PackageSchedule.id.desc()).all()
+
+
+def create_schedule(db: Any, package_id: int, config: ScheduleConfig) -> PackageSchedule:
+    from services.package_service import _get_missing_required_secret_keys_for_package, _refresh_package_secret_metadata
+
+    pkg = get_package_or_404(db, package_id)
+    schedule_config_json = json.dumps(config.model_dump(exclude_none=True))
+    next_run_time = _calculate_next_run_time(config.schedule_type, config.model_dump(exclude_none=True))
+    requested_enabled = config.enabled if config.enabled is not None else True
+    missing_secret_keys = _get_missing_required_secret_keys_for_package(db, pkg)
+    effective_enabled = bool(requested_enabled and not missing_secret_keys)
+
+    schedule = PackageSchedule(
+        package_id=package_id,
+        schedule_type=config.schedule_type,
+        schedule_config=schedule_config_json,
+        is_active=effective_enabled,
+        next_run_time=next_run_time,
+    )
+    db.add(schedule)
+
+    metadata = _refresh_package_secret_metadata(pkg, missing_secret_keys)
+    metadata["schedule_requested_enabled"] = bool(requested_enabled)
+    metadata["schedule_activation_blocked"] = bool(missing_secret_keys and requested_enabled)
+    pkg.description_json = metadata
+    pkg.schedule_enables = effective_enabled
+
+    db.commit()
+    db.refresh(schedule)
+    return schedule
+
+
+def update_schedule(db: Any, schedule_id: int, config: ScheduleConfig) -> PackageSchedule:
+    from services.package_service import _get_missing_required_secret_keys_for_package, _refresh_package_secret_metadata
+
+    schedule = get_schedule_or_404(db, schedule_id)
+    pkg = get_package_or_404(db, schedule.package_id)
+
+    requested_enabled = config.enabled if config.enabled is not None else schedule.is_active
+    missing_secret_keys = _get_missing_required_secret_keys_for_package(db, pkg)
+    effective_enabled = bool(requested_enabled and not missing_secret_keys)
+
+    schedule.schedule_type = config.schedule_type
+    schedule.schedule_config = json.dumps(config.model_dump(exclude_none=True))
+    schedule.is_active = effective_enabled
+    schedule.next_run_time = _calculate_next_run_time(
+        config.schedule_type, config.model_dump(exclude_none=True), schedule.last_run_time
+    )
+
+    metadata = _refresh_package_secret_metadata(pkg, missing_secret_keys)
+    metadata["schedule_requested_enabled"] = bool(requested_enabled)
+    metadata["schedule_activation_blocked"] = bool(missing_secret_keys and requested_enabled)
+    pkg.description_json = metadata
+    pkg.schedule_enables = effective_enabled
+
+    db.commit()
+    db.refresh(schedule)
+    return schedule
+
+
+def activate_schedule(db: Any, schedule_id: int) -> PackageSchedule:
+    from services.package_service import _get_missing_required_secret_keys_for_package, _refresh_package_secret_metadata
+
+    schedule = get_schedule_or_404(db, schedule_id)
+    pkg = get_package_or_404(db, schedule.package_id)
+    missing_secret_keys = _get_missing_required_secret_keys_for_package(db, pkg)
+    if missing_secret_keys:
+        metadata = _refresh_package_secret_metadata(pkg, missing_secret_keys)
+        metadata["schedule_requested_enabled"] = True
+        metadata["schedule_activation_blocked"] = True
+        pkg.description_json = metadata
+        pkg.schedule_enables = False
+        db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Schedule activation blocked until required secrets are set. "
+                f"Missing secrets: {', '.join(missing_secret_keys)}"
+            ),
+        )
+
+    schedule.is_active = True
+    metadata = _refresh_package_secret_metadata(pkg, [])
+    metadata["schedule_requested_enabled"] = True
+    metadata["schedule_activation_blocked"] = False
+    pkg.description_json = metadata
+    pkg.schedule_enables = True
+    db.commit()
+    return schedule
+
+
+def deactivate_schedule(db: Any, schedule_id: int) -> PackageSchedule:
+    schedule = get_schedule_or_404(db, schedule_id)
+    schedule.is_active = False
+    db.commit()
+    return schedule
+
+
+def delete_schedule(db: Any, schedule_id: int) -> int:
+    schedule = get_schedule_or_404(db, schedule_id)
+    db.delete(schedule)
+    db.commit()
+    return schedule_id

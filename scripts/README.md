@@ -102,6 +102,42 @@ Manage the local watcher process running on the host (not in Docker).
 
 ---
 
+### 🧪 `run_tests.sh` - Test Runner
+
+Run test suites with simple presets and pass-through pytest options.
+
+**Usage:**
+```bash
+./scripts/run_tests.sh [OPTIONS] [-- PYTEST_ARGS...]
+```
+
+**Options:**
+- `--api` - Run API tests (`api/tests`)
+- `--all` - Run all configured tests (default)
+- `--file PATH` - Run a specific test file (repeatable)
+- `-k, --keyword EXPR` - Pytest keyword expression
+- `-m, --marker EXPR` - Pytest marker expression
+- `-q, --quiet` - Quiet output
+- `-v, --verbose` - Verbose output
+- `--help` - Show help
+
+**Examples:**
+```bash
+# Run API tests quietly
+./scripts/run_tests.sh --api -q
+
+# Run specific files
+./scripts/run_tests.sh --file api/tests/test_runs.py --file api/tests/test_secrets.py
+
+# Run matching tests by keyword
+./scripts/run_tests.sh --api -k schedule
+
+# Forward raw pytest args
+./scripts/run_tests.sh -- --maxfail=1 -x
+```
+
+---
+
 ### ▶️ `start.sh` - Start Platform
 
 Starts all platform services in correct dependency order with health checks.

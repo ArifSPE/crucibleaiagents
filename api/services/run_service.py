@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+import json
 from typing import Any, List, Optional, Tuple
+from fastapi import HTTPException
 
 
 def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
@@ -136,3 +138,150 @@ def _extract_message(event_type: str, payload: dict) -> str:
 
     else:
         return str(payload)[:150]
+
+
+def serialize_run(run: Any) -> dict:
+    return {
+        "id": run.id,
+        "agent_package_id": run.agent_package_id,
+        "status": _calculate_run_status(run),
+        "runtime_mode": run.runtime_mode,
+        "started_at": _to_utc_iso(run.started_at),
+        "completed_at": _to_utc_iso(run.completed_at),
+        "stopped_at": _to_utc_iso(run.stopped_at),
+        "timeout_seconds": run.timeout_seconds,
+        "exit_code": run.exit_code,
+        "error": run.error,
+        "container_id": run.container_id,
+        "last_health_check": _to_utc_iso(run.last_health_check),
+        "restart_count": run.restart_count,
+        "exposed_port": run.exposed_port,
+    }
+
+
+def serialize_run_log(log: Any) -> dict:
+    return {
+        "id": log.id,
+        "run_id": log.run_id,
+        "ts": _to_utc_iso(log.ts),
+        "stream": log.stream,
+        "level": log.level,
+        "line": log.line,
+        "section": log.section,
+    }
+
+
+def serialize_run_event(event: Any) -> dict:
+    return {
+        "id": event.id,
+        "run_id": event.run_id,
+        "ts": _to_utc_iso(event.ts),
+        "type": event.type,
+        "level": event.level,
+        "category": event.category,
+        "source": event.source,
+        "message": event.message,
+        "payload_jason": event.payload_jason,
+    }
+
+
+def list_runs(db: Any) -> List[Any]:
+    from schemas.model import Runs as Run
+    return db.query(Run).order_by(Run.id.desc()).all()
+
+
+def get_run_or_404(db: Any, run_id: int) -> Any:
+    from schemas.model import Runs as Run
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+
+def create_run(db: Any, package_id: int) -> Any:
+    from schemas.model import Runs as Run, AgentPackage
+    from services.package_service import _get_missing_required_secret_keys_for_package, _refresh_package_secret_metadata
+
+    pkg = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    missing_secret_keys = _get_missing_required_secret_keys_for_package(db, pkg)
+    if missing_secret_keys:
+        _refresh_package_secret_metadata(pkg, missing_secret_keys)
+        db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Package is on hold until required secrets are set. "
+                f"Missing secrets: {', '.join(missing_secret_keys)}"
+            ),
+        )
+
+    new_run = Run(
+        agent_package_id=package_id,
+        status="pending",
+        timeout_seconds=pkg.timeout_seconds,
+        runtime_mode=pkg.runtime_mode,
+    )
+    db.add(new_run)
+    db.commit()
+    db.refresh(new_run)
+    return new_run
+
+
+def list_runs_by_package(db: Any, package_id: int) -> List[Any]:
+    from schemas.model import Runs as Run
+    return db.query(Run).filter(Run.agent_package_id == package_id).order_by(Run.id.desc()).all()
+
+
+def add_run_event(db: Any, run_id: int, event_type: str, payload: dict, level: Optional[str], category: Optional[str], source: Optional[str], message: Optional[str]) -> Any:
+    from schemas.model import RunEvents, RunLogs
+
+    get_run_or_404(db, run_id)
+    inferred_level, inferred_category, inferred_source = _categorize_event(event_type, payload)
+    db_event = RunEvents(
+        run_id=run_id,
+        type=event_type,
+        level=(level or inferred_level),
+        category=(category or inferred_category),
+        source=(source or inferred_source),
+        message=(message or _extract_message(event_type, payload)),
+        payload_jason=json.dumps(payload or {}),
+    )
+    db.add(db_event)
+
+    if event_type == "log":
+        payload_data = payload or {}
+        log_line = payload_data.get("message") or message or ""
+        log_level = (payload_data.get("level") or level or "INFO").upper()
+        if log_line:
+            db_log = RunLogs(
+                run_id=run_id,
+                stream="sdk",
+                level=log_level,
+                line=log_line,
+                section="agent",
+            )
+            db.add(db_log)
+
+    db.commit()
+    db.refresh(db_event)
+    return db_event
+
+
+def add_run_log(db: Any, run_id: int, stream: str, level: str, line: str, section: Optional[str]) -> Any:
+    from schemas.model import RunLogs
+
+    get_run_or_404(db, run_id)
+    db_log = RunLogs(
+        run_id=run_id,
+        stream=stream,
+        level=level,
+        line=line,
+        section=section,
+    )
+    db.add(db_log)
+    db.commit()
+    db.refresh(db_log)
+    return db_log

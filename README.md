@@ -86,6 +86,9 @@ cp .env.example .env
 
 # Verify health
 curl http://localhost:8080/health
+
+# Run API tests
+./scripts/run_tests.sh --api -q
 ```
 
 ### Deploy Your First Agent
@@ -404,10 +407,17 @@ cp -r examples/fastapi-daemon-agent my-daemon
 # Make modifications if needed
 # ...
 
-# Package and deploy
+# Package and publish to watcher incoming directory
 cd my-daemon
 zip -r ../my-daemon.zip manifest.json src/ requirements.txt
-curl -X POST -F "file=@../my-daemon.zip" http://localhost:8080/packages
+
+# Deployment flow (watcher-based)
+# 1) Configure PACKAGE_WATCHER_BASE_DIR in .env
+# 2) Drop/copy package zip into ${PACKAGE_WATCHER_BASE_DIR}/incoming
+cp ../my-daemon.zip "${PACKAGE_WATCHER_BASE_DIR}/incoming/"
+
+# In CI/CD, publish the built zip artifact to the same incoming directory
+# (or mounted path) so the watcher can auto-process deployment.
 ```
 
 ### Secrets Management
@@ -680,7 +690,16 @@ crucibleaiagents/
 
 ### Running Tests
 ```bash
-# All tests
+# API tests (recommended wrapper)
+./scripts/run_tests.sh --api -q
+
+# All configured tests
+./scripts/run_tests.sh --all
+
+# Specific test module
+./scripts/run_tests.sh --file api/tests/test_runs.py
+
+# Raw pytest (direct)
 pytest api/tests/ -v
 
 # Specific test module
@@ -746,20 +765,19 @@ export ENVIRONMENT=development
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please follow these guidelines:
+Contributions are welcome.
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -am 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
+For full contributor workflow and standards, see:
 
-### Code Standards
-- Follow PEP 8 style guide
-- Add type hints to all functions
-- Include docstrings
-- Write tests for new features
-- Update documentation
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+
+Quick summary:
+
+1. Fork and create a branch (`feature/...`, `fix/...`, `docs/...`).
+2. Make focused changes and follow coding standards.
+3. Run relevant tests (`./scripts/run_tests.sh --api -q`).
+4. Open a PR with summary, rationale, risks, and test evidence.
+5. Address review comments and keep docs updated.
 
 ---
 
@@ -773,7 +791,9 @@ Contributions are welcome! Please follow these guidelines:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under a Personal Use License - see the [LICENSE](LICENSE) file for details.
+
+Personal use is allowed. Enterprise/commercial use and support: arif@serverlessbytes.com.
 
 ---
 

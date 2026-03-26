@@ -6,8 +6,10 @@ import zipfile
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from schemas.model import AgentPackage, PackageSecret
+from schemas.model import AgentPackage, PackageSecret, PackageSchedule
 from utils import config
+from services.schedule_service import _calculate_next_run_time
+from services.run_service import _to_utc_iso
 
 
 def _normalize_language(language: Optional[str]) -> str:
@@ -188,3 +190,203 @@ def _refresh_package_secret_metadata(package: AgentPackage, missing_secret_keys:
 
     package.description_json = metadata
     return metadata
+
+
+def _normalize_deployment(raw: Any) -> str:
+    return "container" if str(raw or "").strip().lower() == "container" else "local"
+
+
+def _safe_package_dir_name(package_name: str, package_id: int) -> str:
+    safe_name = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in package_name)
+    return f"{safe_name}_pkg{package_id}"
+
+
+def _build_storage_path(package_name: str, package_id: int) -> str:
+    return os.path.join(config.STORAGE_DIR, _safe_package_dir_name(package_name, package_id))
+
+
+def serialize_package(pkg: AgentPackage) -> dict:
+    metadata = pkg.description_json if isinstance(pkg.description_json, dict) else {}
+    return {
+        "id": pkg.id,
+        "created_at": _to_utc_iso(pkg.created_at),
+        "filename": pkg.filename,
+        "name": pkg.name,
+        "version": pkg.version,
+        "description": pkg.description,
+        "language": pkg.language,
+        "entrypoint": pkg.entry_point,
+        "timeout_seconds": pkg.timeout_seconds,
+        "schedule_enabled": pkg.schedule_enables,
+        "schedule_type": pkg.schedule_type,
+        "schedule_config": pkg.schedule_congig,
+        "llm_provider_id": None,
+        "secret_keys": metadata.get("secret_keys", []),
+        "schedule_requested_enabled": metadata.get("schedule_requested_enabled"),
+        "schedule_activation_blocked": metadata.get("schedule_activation_blocked", False),
+        "missing_secret_keys": metadata.get("missing_secret_keys", []),
+        "disabled": pkg.disabled,
+        "runtime_mode": pkg.runtime_mode,
+        "deployment": _normalize_deployment(pkg.deployment),
+        "restart_policy": pkg.restart_policy,
+        "daemon_auto_start": pkg.deamon_auto_restart,
+        "exposed_port": pkg.expoded_port,
+    }
+
+
+def list_packages(db: Session) -> list[AgentPackage]:
+    return db.query(AgentPackage).all()
+
+
+def get_package_or_404(db: Session, package_id: int) -> AgentPackage:
+    pkg = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return pkg
+
+
+def register_package(db: Session, payload: Any) -> tuple[AgentPackage, bool, str, int, list[str], bool]:
+    package_name = (payload.name or "").strip()
+    package_version = (payload.version or "").strip()
+
+    if not package_name:
+        raise HTTPException(status_code=400, detail="Package name is required")
+    if not package_version:
+        raise HTTPException(status_code=400, detail="Package version is required")
+
+    manifest_metadata = payload.manifest_metadata if isinstance(payload.manifest_metadata, dict) else {}
+    explicit_action = manifest_metadata.get("normalized_action") or manifest_metadata.get("action")
+    package_action = _normalize_upload_action(explicit_action) if explicit_action else "upsert"
+
+    package = db.query(AgentPackage).filter(AgentPackage.name == package_name).first()
+    if package_action == "new" and package is not None:
+        raise HTTPException(status_code=400, detail=f"Package with name '{package_name}' already exists")
+    if package_action == "update" and package is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Manifest action 'update' requires an existing package named '{package_name}'",
+        )
+    if package_action == "new_version" and package is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Manifest action 'new_version' requires an existing package named '{package_name}'",
+        )
+
+    created = package is None
+    if created:
+        package = AgentPackage(name=package_name, version=package_version)
+        db.add(package)
+
+    package.version = package_version
+    package.description = payload.description
+    package.language = _normalize_language(payload.language)
+    package.entry_point = payload.entrypoint
+    package.timeout_seconds = payload.timeout_seconds
+    package.filename = payload.filename or f"{package_name}.zip"
+
+    if payload.runtime_mode is not None:
+        package.runtime_mode = payload.runtime_mode
+    package.deployment = _normalize_deployment(payload.deployment)
+    if payload.restart_policy is not None:
+        package.restart_policy = payload.restart_policy
+    if payload.daemon_auto_start is not None:
+        package.deamon_auto_restart = payload.daemon_auto_start
+    if payload.exposed_port is not None:
+        package.expoded_port = payload.exposed_port
+    if payload.schedule_enabled is not None:
+        package.schedule_enables = payload.schedule_enabled
+    if payload.schedule_type is not None:
+        package.schedule_type = payload.schedule_type
+    if payload.schedule_config is not None:
+        package.schedule_congig = payload.schedule_config
+
+    existing_metadata: dict[str, Any] = (
+        package.description_json if isinstance(package.description_json, dict) else {}
+    )
+    metadata_updates = {
+        "secret_keys": payload.secret_keys,
+        "environment": payload.environment,
+        "llm_provider": payload.llm_provider,
+        "tool_bindings": payload.tool_bindings,
+        "manifest_metadata": payload.manifest_metadata,
+    }
+    for key, value in metadata_updates.items():
+        if value is not None:
+            existing_metadata[key] = value
+    if existing_metadata:
+        package.description_json = existing_metadata
+
+    db.commit()
+    db.refresh(package)
+
+    package.storage_path = _build_storage_path(package.name, package.id)
+
+    secret_keys = payload.secret_keys or []
+    provisioned_secret_keys = 0
+    for key_name in secret_keys:
+        normalized_key = str(key_name).strip()
+        if not normalized_key:
+            continue
+        existing_secret = db.query(PackageSecret).filter(
+            PackageSecret.package_id == package.id,
+            PackageSecret.key_name == normalized_key,
+        ).first()
+        if existing_secret:
+            continue
+
+        db.add(PackageSecret(package_id=package.id, key_name=normalized_key, encrypted_value=""))
+        provisioned_secret_keys += 1
+
+    requested_schedule_enabled = bool(payload.schedule_enabled)
+    effective_schedule_enabled = requested_schedule_enabled
+    missing_required_secret_keys: list[str] = []
+    if requested_schedule_enabled and secret_keys:
+        for key_name in secret_keys:
+            normalized_key = str(key_name).strip()
+            if not normalized_key:
+                continue
+            secret_row = db.query(PackageSecret).filter(
+                PackageSecret.package_id == package.id,
+                PackageSecret.key_name == normalized_key,
+            ).first()
+            if not secret_row or not str(secret_row.encrypted_value or "").strip():
+                missing_required_secret_keys.append(normalized_key)
+
+        if missing_required_secret_keys:
+            effective_schedule_enabled = False
+            package.schedule_enables = False
+
+    existing_metadata["schedule_requested_enabled"] = requested_schedule_enabled
+    existing_metadata["schedule_activation_blocked"] = bool(missing_required_secret_keys)
+    existing_metadata["missing_secret_keys"] = sorted(set(missing_required_secret_keys)) if missing_required_secret_keys else []
+    package.description_json = existing_metadata
+
+    if payload.schedule_type and payload.schedule_config:
+        next_run_time = _calculate_next_run_time(payload.schedule_type, payload.schedule_config)
+        existing_schedule = db.query(PackageSchedule).filter(PackageSchedule.package_id == package.id).first()
+
+        if existing_schedule:
+            existing_schedule.schedule_type = payload.schedule_type
+            existing_schedule.schedule_config = json.dumps(payload.schedule_config)
+            existing_schedule.is_active = effective_schedule_enabled
+            existing_schedule.next_run_time = next_run_time
+        else:
+            db.add(
+                PackageSchedule(
+                    package_id=package.id,
+                    schedule_type=payload.schedule_type,
+                    schedule_config=json.dumps(payload.schedule_config),
+                    is_active=effective_schedule_enabled,
+                    next_run_time=next_run_time,
+                )
+            )
+
+    db.commit()
+    return (
+        package,
+        created,
+        package_action,
+        provisioned_secret_keys,
+        sorted(set(missing_required_secret_keys)) if missing_required_secret_keys else [],
+        effective_schedule_enabled,
+    )

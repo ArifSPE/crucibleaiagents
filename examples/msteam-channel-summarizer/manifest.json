@@ -5,6 +5,7 @@
   "description": "AI agent for monitoring MS Teams channels and posting intelligent summaries. Reads unread messages, creates actionable summaries using LLM, and posts to designated channels.",
   "entrypoint": "src/agent.py", 
   "timeout_seconds": 300,
+  "deployment": "container",
   "environment": {
     "MS_TEAMS_TENANT_ID": "{secrets.MS_TEAMS_TENANT_ID}",
     "MS_TEAMS_CLIENT_ID": "{secrets.MS_TEAMS_CLIENT_ID}", 

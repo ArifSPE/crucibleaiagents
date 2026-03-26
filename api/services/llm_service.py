@@ -3,10 +3,15 @@ from urllib import request as urllib_request
 from urllib import error as urllib_error
 from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
-from schemas.model import LlmProvider
+from sqlalchemy.orm import Session
+from schemas.model import LlmProvider, LLMCredential
 from utils.secrets_manager import get_secrets_manager
 from utils.config import ALLOWED_LLM_PROVIDERS
-from schemas.llm_providers import LLMProviderChatRequest as LlmProviderChatRequest
+from schemas.llm_providers import (
+    LLMProviderChatRequest as LlmProviderChatRequest,
+    LLMProviderUpsert,
+    LLM_PROVIDER_CREDENTIAL_TEMPLATES,
+)
 
 
 def _normalize_llm_provider(provider: str) -> str:
@@ -34,6 +39,106 @@ def _validate_credentials_map(credentials: Optional[Dict[str, str]]) -> Dict[str
         value = "" if raw_value is None else str(raw_value)
         cleaned[key] = value
     return cleaned
+
+
+def list_llm_providers(db: Session) -> List[LlmProvider]:
+    return db.query(LlmProvider).order_by(LlmProvider.provider).all()
+
+
+def get_llm_provider_or_404(db: Session, provider_id: int) -> LlmProvider:
+    provider = db.query(LlmProvider).filter(LlmProvider.id == provider_id).first()
+    if not provider:
+        raise HTTPException(status_code=404, detail="LLM provider not found")
+    return provider
+
+
+def _build_child_credentials(normalized: str, credentials: Optional[Dict[str, str]], provider_id: int) -> List[LLMCredential]:
+    credential_list: List[LLMCredential] = []
+    if not credentials:
+        return credential_list
+
+    allowed = set(LLM_PROVIDER_CREDENTIAL_TEMPLATES.get(normalized, []))
+    for key, value in credentials.items():
+        if key not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid credential key '{key}' for provider '{normalized}'",
+            )
+        if not isinstance(value, str) or not value.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Credential value for '{key}' must be non-empty string",
+            )
+        encrypted_value = get_secrets_manager().encrypt(value)
+        credential_list.append(
+            LLMCredential(
+                llm_provider_id=provider_id,
+                key_name=key,
+                encrypted_value=encrypted_value,
+            )
+        )
+    return credential_list
+
+
+def create_llm_provider(db: Session, body: LLMProviderUpsert) -> LlmProvider:
+    normalized = _normalize_llm_provider(body.provider_name)
+    existing = db.query(LlmProvider).filter(LlmProvider.provider == normalized).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Provider already exists")
+
+    provider = LlmProvider(
+        provider=normalized,
+        description=body.description,
+        endpoint=body.endpoint,
+        encrypted_credentials=None,
+    )
+    db.add(provider)
+    db.flush()
+
+    provider.credential = _build_child_credentials(normalized, body.credentials, provider.id)
+
+    db.commit()
+    db.refresh(provider)
+    return provider
+
+
+def update_llm_provider(db: Session, provider_id: int, body: LLMProviderUpsert) -> LlmProvider:
+    normalized = _normalize_llm_provider(body.provider_name)
+    provider = get_llm_provider_or_404(db, provider_id)
+
+    conflict = (
+        db.query(LlmProvider)
+        .filter(LlmProvider.provider == normalized, LlmProvider.id != provider_id)
+        .first()
+    )
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Another LLM provider with name '{normalized}' already exists.",
+        )
+
+    provider.provider = normalized
+    if body.description is not None:
+        provider.description = body.description
+    if body.endpoint is not None:
+        provider.endpoint = body.endpoint
+
+    if body.credentials is not None:
+        db.query(LLMCredential).filter(LLMCredential.llm_provider_id == provider_id).delete()
+        provider.credential = _build_child_credentials(normalized, body.credentials, provider_id)
+        provider.encrypted_credentials = None
+
+    db.commit()
+    db.refresh(provider)
+    return provider
+
+
+def delete_llm_provider(db: Session, provider_id: int) -> str:
+    provider = get_llm_provider_or_404(db, provider_id)
+    provider_name = provider.provider
+    db.delete(provider)
+    db.commit()
+    return provider_name
 
 
 def _serialize_llm_provider(db_provider: LlmProvider) -> Dict[str, Any]:
