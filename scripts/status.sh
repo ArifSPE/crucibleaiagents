@@ -140,38 +140,51 @@ echo
 echo -e "${CYAN}Service Status:${NC}"
 echo
 
-# Get ps output
-ps_output=$(docker-compose ps 2>/dev/null || true)
+# Resolve service status via container inspect for robust parsing across compose output formats.
+get_compose_service_status() {
+    local service="$1"
+    local container_id
+    container_id=$(docker-compose ps -q "$service" 2>/dev/null | head -n 1 || true)
+
+    if [ -z "$container_id" ]; then
+        echo "down"
+        return
+    fi
+
+    local state
+    state=$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null || echo "")
+
+    if [ "$state" != "running" ]; then
+        echo "down"
+        return
+    fi
+
+    local health
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container_id" 2>/dev/null || echo "")
+
+    if [ -z "$health" ]; then
+        echo "running"
+    elif [ "$health" = "healthy" ]; then
+        echo "health"
+    elif [ "$health" = "starting" ]; then
+        echo "starting"
+    else
+        echo "unhealthy"
+    fi
+}
 
 # Check each service
 for service in docker-proxy db api watcher worker_container; do
-    status=$(echo "$ps_output" | grep -w "$service" | awk '{print $NF}' || echo "down")
-    
-    if [ -z "$status" ]; then
-        log_status "$service" "down"
-    elif [[ "$status" == *"Up"* ]]; then
-        if [[ "$status" == *"(healthy)"* ]]; then
-            log_status "$service" "health"
-        elif [[ "$status" == *"(unhealthy)"* ]]; then
-            log_status "$service" "unhealthy"
-        else
-            log_status "$service" "running"
-        fi
-    else
-        log_status "$service" "down"
-    fi
+    status=$(get_compose_service_status "$service")
+    log_status "$service" "$status"
 done
 
 echo
 
 # Check for runner service (optional)
 if docker-compose config --services 2>/dev/null | grep -q "^runner$"; then
-    runner_status=$(echo "$ps_output" | grep -w "runner" | awk '{print $NF}' || echo "down")
-    if [ -z "$runner_status" ]; then
-        log_status "runner" "down"
-    else
-        log_status "runner" "running"
-    fi
+    runner_status=$(get_compose_service_status "runner")
+    log_status "runner" "$runner_status"
 fi
 
 # Check local watcher process

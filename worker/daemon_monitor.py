@@ -24,6 +24,7 @@ from worker.daemon_manager import (
     remove_daemon_container,
     update_daemon_run,
     get_daemon_run_info,
+    capture_daemon_logs,
 )
 
 HEALTH_CHECK_INTERVAL = int(os.getenv("DAEMON_HEALTH_CHECK_INTERVAL", "30"))
@@ -179,14 +180,29 @@ def monitor_single_daemon(run: dict) -> None:
                 exit_code=exit_code,
                 restart_policy=restart_policy,
             )
-            update_daemon_run(
-                run_id,
-                status="stopped",
-                stopped_at=_utc_now(),
-                exit_code=exit_code,
-            )
+            terminal_time = _utc_now()
+            if exit_code == 0:
+                # A clean daemon exit should be treated as a completed run.
+                update_daemon_run(
+                    run_id,
+                    status="completed",
+                    completed_at=terminal_time,
+                    stopped_at=terminal_time,
+                    exit_code=exit_code,
+                )
+            else:
+                update_daemon_run(
+                    run_id,
+                    status="stopped",
+                    stopped_at=terminal_time,
+                    exit_code=exit_code,
+                )
         return
     
+    # Container is running - capture logs periodically
+    if container_id:
+        capture_daemon_logs(run_id, container_id)
+
     # Container is running - perform health check if configured
     health_config = run.get("health_check_config", {})
     if health_config and health_config.get("enabled"):

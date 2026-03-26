@@ -94,7 +94,7 @@ services:
       POLL_SECONDS: "3"
       RUNNER_IMAGE: crucibleaiagents-runner:latest
       RUNNER_API_BASE_URL: http://api:8000
-      DAEMON_API_BASE_URL: http://host.docker.internal:8000
+      DAEMON_API_BASE_URL: http://host.docker.internal:8080
       WORKSPACE_HOST_PATH: ${PWD}
       WORKSPACE_PACKAGE_HOST_PATH: ${PACKAGE_WATCHER_BASE_DIR}
       DOCKER_HOST: tcp://docker-proxy:2375

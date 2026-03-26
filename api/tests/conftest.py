@@ -33,7 +33,7 @@ from starlette.testclient import TestClient
 import main as main_module
 import utils.dependency as dep_module
 from utils.db import Base
-from schemas.model import AgentPackage, LlmProvider, PackageSchedule, PackageSecret, Runs
+from schemas.model import AgentPackage, LlmProvider, LLMCredential, PackageSchedule, PackageSecret, Runs
 from main import app
 
 # ── single shared SQLite engine with StaticPool (in-memory, thread-safe) ──────
@@ -104,6 +104,28 @@ def sample_provider(db):
     """A persisted LlmProvider row (local_ollama, no credentials)."""
     provider = LlmProvider(provider="local_ollama", description="Local Ollama instance")
     db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    return provider
+
+
+@pytest.fixture()
+def sample_provider_with_credentials(db):
+    """A persisted LlmProvider with child LLMCredential records."""
+    from utils.secrets_manager import get_secrets_manager
+    
+    provider = LlmProvider(provider="anthropic", description="Anthropic Claude")
+    db.add(provider)
+    db.flush()  # Get provider.id
+    
+    # Add encrypted credential
+    encrypted_key = get_secrets_manager().encrypt("sk-test-api-key")
+    cred = LLMCredential(
+        llm_provider_id=provider.id,
+        key_name="api_key",
+        encrypted_value=encrypted_key,
+    )
+    db.add(cred)
     db.commit()
     db.refresh(provider)
     return provider

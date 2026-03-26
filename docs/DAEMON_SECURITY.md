@@ -71,7 +71,7 @@ DOCKER_HOST: tcp://docker-proxy:2375  # Use proxy instead of raw socket
 
 Platform services and daemon containers use different API endpoints:
 - **Worker (internal)**: `http://api:8000` - Direct container-to-container communication
-- **Daemon (external)**: `http://host.docker.internal:8000` - Via Docker host, enabling external daemon access
+- **Daemon (external)**: `http://host.docker.internal:8080` - Via Docker host, enabling external daemon access
 
 This separation allows:
 - Daemons to reach API from outside Docker if needed
@@ -260,7 +260,7 @@ Note: Column names `deamon_auto_restart` and `expoded_port` preserve typographic
 DOCKER_HOST=tcp://docker-proxy:2375
 AGENTFLOW_DOCKER_NETWORK=crucibleaiagents_default
 AGENTFLOW_DAEMON_DOCKER_NETWORK=crucibleaiagents-daemon
-DAEMON_API_BASE_URL=http://host.docker.internal:8000
+DAEMON_API_BASE_URL=http://host.docker.internal:8080
 DAEMON_HEALTH_CHECK_INTERVAL=30
 
 # Pod options

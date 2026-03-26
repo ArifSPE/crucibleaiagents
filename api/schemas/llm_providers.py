@@ -15,3 +15,21 @@ class LLMProviderChatRequest(BaseModel):
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
 
+ALLOWED_LLM_PROVIDERS = {
+    "local_ollama",
+    "ollama_cloud",
+    "ibm_watson",
+    "aws_bedrock",
+    "anthropic",
+    "claude",
+}
+
+# Provider-specific credential templates
+LLM_PROVIDER_CREDENTIAL_TEMPLATES = {
+    "local_ollama": [],  # No credentials needed
+    "ollama_cloud": ["api_key"],
+    "ibm_watson": ["api_key", "instance_id"],
+    "aws_bedrock": ["access_key_id", "secret_access_key", "region"],
+    "anthropic": ["api_key"],
+    "claude": ["api_key"],
+}

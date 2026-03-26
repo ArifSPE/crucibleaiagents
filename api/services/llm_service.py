@@ -38,10 +38,29 @@ def _validate_credentials_map(credentials: Optional[Dict[str, str]]) -> Dict[str
 
 def _serialize_llm_provider(db_provider: LlmProvider) -> Dict[str, Any]:
     from services.run_service import _to_utc_iso
-    credential_keys: List[str] = []
-    has_credentials = bool(db_provider.encrypted_credentials and str(db_provider.encrypted_credentials).strip())
 
-    if has_credentials:
+    credential_keys: List[str] = []
+    # Check for credentials in child LLMCredential records (primary storage)
+    has_keys = bool(db_provider.credential and isinstance(db_provider.credential, list) and len(db_provider.credential) > 0)
+    if has_keys:
+        # Extract credential key names from child records
+        credential_keys = sorted([cred.key_name for cred in db_provider.credential if cred and cred.key_name])
+    # Fall back to encrypted_credentials field for backward compatibility
+    has_credentials = has_keys or bool(db_provider.encrypted_credentials and str(db_provider.encrypted_credentials).strip())
+    
+    # Build credential list (decrypted values)
+    list_of_credentials = []
+    if has_keys:
+        for cred in db_provider.credential:
+            if cred and cred.key_name:
+                try:
+                    decrypted_value = get_secrets_manager().decrypt(cred.encrypted_value)
+                    list_of_credentials.append({"key_name": cred.key_name})
+                except Exception:
+                    list_of_credentials.append({"key_name": cred.key_name})
+
+    # Fall back to encrypted_credentials for backward compatibility
+    if not has_keys and db_provider.encrypted_credentials:
         try:
             decrypted = get_secrets_manager().decrypt(db_provider.encrypted_credentials)
             parsed = json.loads(decrypted) if decrypted else {}
@@ -49,6 +68,7 @@ def _serialize_llm_provider(db_provider: LlmProvider) -> Dict[str, Any]:
                 credential_keys = sorted([str(key) for key in parsed.keys() if str(key).strip()])
         except Exception:
             credential_keys = []
+
 
     return {
         "id": db_provider.id,
@@ -59,6 +79,7 @@ def _serialize_llm_provider(db_provider: LlmProvider) -> Dict[str, Any]:
         "credential_keys": credential_keys,
         "created_at": _to_utc_iso(db_provider.created_at),
         "updated_at": _to_utc_iso(db_provider.updated_at),
+        "credential": list_of_credentials,
     }
 
 

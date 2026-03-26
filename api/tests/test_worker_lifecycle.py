@@ -2,9 +2,11 @@ import json
 import io
 from pathlib import Path
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
-from schemas.model import AgentPackage, RunEvents, RunLogs, Runs
+from schemas.model import AgentPackage, PackageSecret, RunEvents, RunLogs, Runs
+from utils.secrets_manager import get_secrets_manager
 from worker import worker as worker_module
 
 
@@ -103,6 +105,15 @@ def test_worker_container_deployment_uses_docker_runner(client, db, monkeypatch,
     db.commit()
     db.refresh(package)
 
+    db.add(
+        PackageSecret(
+            package_id=package.id,
+            key_name="TAVILY_API_KEY",
+            encrypted_value=get_secrets_manager().encrypt("test-secret-value"),
+        )
+    )
+    db.commit()
+
     run = Runs(
         agent_package_id=package.id,
         status="pending",
@@ -148,6 +159,7 @@ def test_worker_container_deployment_uses_docker_runner(client, db, monkeypatch,
         assert cmd is not None
         assert cmd[0:2] == ["docker", "run"]
         assert "test-runner:latest" in cmd
+        assert "TAVILY_API_KEY=test-secret-value" in cmd
     finally:
         verify_db.close()
 
@@ -265,6 +277,58 @@ def test_resolve_workspace_maps_workspace_prefix_to_repo_root(monkeypatch, tmp_p
     assert resolved == mapped
 
 
+def test_wait_for_database_ready_retries_then_succeeds(monkeypatch):
+    state = {"calls": 0, "sleeps": 0}
+
+    class _FakeSession:
+        def execute(self, _stmt):
+            state["calls"] += 1
+            if state["calls"] < 3:
+                raise OperationalError("SELECT 1", {}, Exception("db not ready"))
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(worker_module, "SessionLocal", lambda: _FakeSession())
+    monkeypatch.setattr(worker_module.time, "sleep", lambda _seconds: state.__setitem__("sleeps", state["sleeps"] + 1))
+
+    ready = worker_module.wait_for_database_ready(max_wait_seconds=2, retry_interval_seconds=0.01)
+    assert ready is True
+    assert state["calls"] == 3
+    assert state["sleeps"] >= 2
+
+
+def test_wait_for_database_ready_times_out(monkeypatch):
+    state = {"calls": 0}
+
+    class _FakeSession:
+        def execute(self, _stmt):
+            state["calls"] += 1
+            raise OperationalError("SELECT 1", {}, Exception("db still down"))
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(worker_module, "SessionLocal", lambda: _FakeSession())
+    monkeypatch.setattr(worker_module.time, "sleep", lambda _seconds: None)
+
+    ready = worker_module.wait_for_database_ready(max_wait_seconds=0, retry_interval_seconds=0.01)
+    assert ready is False
+    assert state["calls"] >= 1
+
+
 def test_enqueue_autostart_daemon_runs_for_container(client, db, monkeypatch):
     daemon_pkg = AgentPackage(
         name="daemon-autostart-container",
@@ -327,6 +391,15 @@ def test_daemon_container_run_starts_detached_and_stays_running(client, db, monk
     db.commit()
     db.refresh(pkg)
 
+    db.add(
+        PackageSecret(
+            package_id=pkg.id,
+            key_name="TAVILY_API_KEY",
+            encrypted_value=get_secrets_manager().encrypt("daemon-secret"),
+        )
+    )
+    db.commit()
+
     run = Runs(
         agent_package_id=pkg.id,
         status="pending",
@@ -347,7 +420,7 @@ def test_daemon_container_run_starts_detached_and_stays_running(client, db, monk
         stdout = "daemon-container-id\n"
         stderr = ""
 
-    def _fake_run(cmd, capture_output=True, text=True):
+    def _fake_run(cmd, capture_output=True, text=True, timeout=None):
         captured["cmd"] = cmd
         return _FakeRunResult()
 
@@ -372,5 +445,8 @@ def test_daemon_container_run_starts_detached_and_stays_running(client, db, monk
 
     cmd = captured["cmd"]
     assert cmd is not None
-    assert cmd[0:3] == ["docker", "run", "-d"]
+    assert cmd[0] == "docker"
+    assert "run" in cmd
+    assert "-d" in cmd
     assert "-p" in cmd
+    assert "TAVILY_API_KEY=daemon-secret" in cmd

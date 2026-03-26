@@ -122,3 +122,27 @@ class LlmProvider(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
+    credential: Mapped[list["LLMCredential"]] = relationship(
+        "LLMCredential",
+        back_populates="provider",
+        cascade="all, delete-orphan",
+        lazy="selectin")
+
+
+class LLMCredential(Base):
+    __tablename__ = "llm_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    llm_provider_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("llm_providers.id"),
+        nullable=False,
+    )
+    key_name: Mapped[str] = mapped_column(String, nullable=False)  
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)  # Encrypted credential value
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    provider: Mapped["LlmProvider"] = relationship(
+        "LlmProvider",
+        back_populates="credential")

@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "language": "python",
   "entrypoint": "src/agent.py",
+  "deployment": "container",
   "environment": {
     "LLM_MODEL": "llama3.1",
     "OLLAMA_BASE_URL": "http://host.docker.internal:11434",

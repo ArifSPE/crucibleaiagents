@@ -176,7 +176,9 @@ class TestDaemonMonitor:
     @patch('worker.daemon_manager.get_daemon_run_info')
     def test_monitor_missing_container_id(self, mock_get_info, mock_check_status):
         """Test monitor marks run failed when container_id missing."""
-        with patch('worker.daemon_manager.update_daemon_run') as mock_update:
+        # Patch the reference used by daemon_monitor (not daemon_manager) because
+        # from-imports bind at import time and patching the origin module has no effect.
+        with patch('worker.daemon_monitor.update_daemon_run') as mock_update:
             run = {
                 "id": 1,
                 "package_id": 10,
@@ -192,12 +194,12 @@ class TestDaemonMonitor:
             assert call_args[0][0] == 1  # run_id
             assert "status" in call_args[1] or call_args[1].get("status") == "failed"
     
-    @patch('worker.daemon_manager.check_container_status')
+    @patch('worker.daemon_monitor.check_container_status')
     def test_monitor_container_not_found(self, mock_check_status):
         """Test monitor marks run failed when container not found."""
         mock_check_status.return_value = None
         
-        with patch('worker.daemon_manager.update_daemon_run') as mock_update:
+        with patch('worker.daemon_monitor.update_daemon_run') as mock_update:
             run = {
                 "id": 1,
                 "package_id": 10,
@@ -212,7 +214,7 @@ class TestDaemonMonitor:
             # Should mark run failed
             mock_update.assert_called_once()
     
-    @patch('worker.daemon_manager.check_container_status')
+    @patch('worker.daemon_monitor.check_container_status')
     def test_monitor_container_running_healthy(self, mock_check_status):
         """Test monitor updates last_health_check for running container."""
         mock_check_status.return_value = {
@@ -220,8 +222,8 @@ class TestDaemonMonitor:
             "exit_code": 0,
         }
         
-        with patch('worker.daemon_manager.perform_health_check', return_value=True):
-            with patch('worker.daemon_manager.update_daemon_run') as mock_update:
+        with patch('worker.daemon_monitor.perform_health_check', return_value=True):
+            with patch('worker.daemon_monitor.update_daemon_run') as mock_update:
                 run = {
                     "id": 1,
                     "package_id": 10,
@@ -235,6 +237,53 @@ class TestDaemonMonitor:
                 
                 # Should update last_health_check
                 mock_update.assert_called_once()
+
+    @patch('worker.daemon_monitor.check_container_status')
+    def test_monitor_container_exited_zero_marks_completed(self, mock_check_status):
+        """Test clean daemon exit is marked completed when not restarting."""
+        mock_check_status.return_value = {
+            "running": False,
+            "exit_code": 0,
+        }
+
+        with patch('worker.daemon_monitor.update_daemon_run') as mock_update:
+            run = {
+                "id": 42,
+                "package_id": 12,
+                "container_id": "abc123",
+                "restart_count": 0,
+                "restart_policy": "never",
+            }
+
+            monitor_single_daemon(run)
+
+            mock_update.assert_called_once()
+            assert mock_update.call_args[1]["status"] == "completed"
+            assert mock_update.call_args[1]["exit_code"] == 0
+            assert "completed_at" in mock_update.call_args[1]
+
+    @patch('worker.daemon_monitor.check_container_status')
+    def test_monitor_container_exited_nonzero_marks_stopped(self, mock_check_status):
+        """Test non-zero daemon exit remains stopped when not restarting."""
+        mock_check_status.return_value = {
+            "running": False,
+            "exit_code": 1,
+        }
+
+        with patch('worker.daemon_monitor.update_daemon_run') as mock_update:
+            run = {
+                "id": 43,
+                "package_id": 12,
+                "container_id": "abc123",
+                "restart_count": 0,
+                "restart_policy": "never",
+            }
+
+            monitor_single_daemon(run)
+
+            mock_update.assert_called_once()
+            assert mock_update.call_args[1]["status"] == "stopped"
+            assert mock_update.call_args[1]["exit_code"] == 1
 
 
 @pytest.mark.integration
@@ -257,6 +306,7 @@ class TestDaemonStartup:
             "health_check_config": {},
             "restart_policy": "on-failure",
             "timeout_seconds": 60,
+            "secret_env": {},  # pre-loaded so the DB package_secrets query is skipped
         }
         
         with patch.dict('os.environ', {'WORKSPACE_PACKAGE_HOST_PATH': '/tmp/pkg'}):
@@ -281,6 +331,7 @@ class TestDaemonStartup:
             "exposed_port": 8000,
             "health_check_config": {},
             "restart_policy": "on-failure",
+            "secret_env": {},  # pre-loaded so the DB package_secrets query is skipped
         }
         
         with patch.dict('os.environ', {'WORKSPACE_PACKAGE_HOST_PATH': '/tmp/pkg'}):
