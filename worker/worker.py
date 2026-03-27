@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional
+import json
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -356,6 +357,148 @@ def _set_run_container_info(run_id: int, container_id: Optional[str] = None, exp
         })
 
 
+def _docker_inspect_state(container_ref: str) -> Optional[dict]:
+    """Return Docker state dict for a container name/id or None when missing."""
+    try:
+        inspect_result = subprocess.run(
+            ["docker", "inspect", container_ref, "--format", "{{json .State}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if inspect_result.returncode != 0:
+            return None
+        return json.loads((inspect_result.stdout or "").strip() or "{}")
+    except Exception:
+        return None
+
+
+def _docker_resolve_container_id(container_name: str) -> Optional[str]:
+    """Resolve full Docker container ID for a container name."""
+    try:
+        inspect_result = subprocess.run(
+            ["docker", "inspect", container_name, "--format", "{{.Id}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if inspect_result.returncode != 0:
+            return None
+        resolved = (inspect_result.stdout or "").strip()
+        return resolved or None
+    except Exception:
+        return None
+
+
+def _docker_remove_container(container_ref: str) -> bool:
+    try:
+        rm_result = subprocess.run(
+            ["docker", "rm", "-f", container_ref],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        return rm_result.returncode == 0
+    except Exception:
+        return False
+
+
+def reconcile_batch_container_runs() -> int:
+    """Reconcile batch container runs and cleanup orphaned/stale containers.
+
+    Returns the number of runs reconciled (status/container_id updates or cleanup).
+    """
+    reconciled = 0
+
+    with db_session() as db:
+        rows = db.execute(text("""
+            SELECT r.id, r.status, r.container_id
+            FROM runs r
+            JOIN agent_packages ap ON ap.id = r.agent_package_id
+            WHERE COALESCE(r.runtime_mode, 'batch') != 'daemon'
+              AND LOWER(COALESCE(ap.deployment, '')) = 'container'
+              AND COALESCE(NULLIF(TRIM(r.container_id), ''), '') != ''
+            ORDER BY r.id ASC
+        """)).fetchall()
+
+        for row in rows:
+            run_id = int(row.id)
+            run_status = str(row.status or "").strip().lower()
+            container_ref = str(row.container_id or "").strip()
+            if not container_ref:
+                continue
+
+            state = _docker_inspect_state(container_ref)
+
+            # Terminal runs should not retain container references.
+            if run_status in {"completed", "failed", "cancelled", "stopped", "timed_out"}:
+                _docker_remove_container(container_ref)
+                _set_run_container_info(run_id, container_id=None, exposed_port=None)
+                reconciled += 1
+                continue
+
+            # Running run with missing container is stale: mark failed.
+            if run_status == "running" and state is None:
+                db.execute(text("""
+                    UPDATE runs
+                    SET status = 'failed',
+                        error = :error,
+                        completed_at = :completed_at,
+                        container_id = NULL,
+                        exposed_port = NULL
+                    WHERE id = :run_id
+                """), {
+                    "run_id": run_id,
+                    "error": "Recovered stale batch run (container not found)",
+                    "completed_at": _utc_now(),
+                })
+                log_event(
+                    LOGGER,
+                    logging.WARNING,
+                    "worker.batch_stale_run_recovered",
+                    "Recovered stale batch run during reconciliation",
+                    run_id=run_id,
+                    container_id=container_ref,
+                )
+                reconciled += 1
+                continue
+
+            if run_status == "running" and state is not None and not state.get("Running", False):
+                raw_exit_code = state.get("ExitCode")
+                exit_code = int(raw_exit_code) if raw_exit_code is not None else 1
+                status = "completed" if exit_code == 0 else "failed"
+                error = None if exit_code == 0 else f"Container process exited with code {exit_code}"
+
+                db.execute(text("""
+                    UPDATE runs
+                    SET status = :status,
+                        exit_code = :exit_code,
+                        error = :error,
+                        completed_at = :completed_at,
+                        container_id = NULL,
+                        exposed_port = NULL
+                    WHERE id = :run_id
+                """), {
+                    "run_id": run_id,
+                    "status": status,
+                    "exit_code": exit_code,
+                    "error": error,
+                    "completed_at": _utc_now(),
+                })
+                _docker_remove_container(container_ref)
+                reconciled += 1
+
+    if reconciled:
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "worker.batch_reconciled",
+            "Reconciled batch container runs",
+            count=reconciled,
+        )
+    return reconciled
+
+
 def _load_package_secret_environment(package_id: int) -> dict[str, str]:
     """Load decrypted package secrets as environment variables."""
     with db_session() as db:
@@ -601,6 +744,14 @@ def _execute_container(run_id: int, package: dict, workspace: Path, timeout_seco
         container_name,
         "--network",
         DOCKER_NETWORK,
+        "--label",
+        "crucible.managed=true",
+        "--label",
+        f"crucible.run_id={run_id}",
+        "--label",
+        f"crucible.package_id={package.get('id')}",
+        "--label",
+        "crucible.runtime_mode=batch",
         "-e",
         f"RUN_ID={run_id}",
         "-e",
@@ -660,6 +811,16 @@ def _execute_container(run_id: int, package: dict, workspace: Path, timeout_seco
         env=os.environ.copy(),
     )
 
+    resolved_container_id = None
+    for _ in range(3):
+        resolved_container_id = _docker_resolve_container_id(container_name)
+        if resolved_container_id:
+            break
+        time.sleep(0.1)
+
+    if resolved_container_id:
+        _set_run_container_info(run_id, container_id=resolved_container_id, exposed_port=None)
+
     threads = [
         threading.Thread(target=_stream_output, args=(run_id, "stdout", process.stdout), daemon=True),
         threading.Thread(target=_stream_output, args=(run_id, "stderr", process.stderr), daemon=True),
@@ -671,16 +832,16 @@ def _execute_container(run_id: int, package: dict, workspace: Path, timeout_seco
         rc = process.wait(timeout=timeout_seconds or None)
     except subprocess.TimeoutExpired:
         process.kill()
-        subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, text=True)
         _insert_event(run_id, "worker.run_timeout", level="ERROR", message="Container run timed out")
         _update_run(run_id, "failed", exit_code=124, error="Container run timed out")
-        _set_run_container_info(run_id, container_id=None, exposed_port=None)
         return
+    finally:
+        # Defensive cleanup: handle worker crashes/retries and ensure stale refs are cleared.
+        _docker_remove_container(resolved_container_id or container_name)
+        _set_run_container_info(run_id, container_id=None, exposed_port=None)
 
     for t in threads:
         t.join(timeout=2)
-
-    _set_run_container_info(run_id, container_id=None, exposed_port=None)
 
     if rc == 0:
         _insert_event(run_id, "worker.run_complete", message="Container run execution completed", payload={"exit_code": rc})

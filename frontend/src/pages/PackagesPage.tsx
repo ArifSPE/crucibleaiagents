@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
+import { AgGridReact } from "ag-grid-react";
+import type { ColDef, GridApi, GridReadyEvent, RowClickedEvent } from "ag-grid-community";
 import { EmptyState } from "../components/EmptyState";
 import { SectionCard } from "../components/SectionCard";
 import { StatusBadge } from "../components/StatusBadge";
 import { Tabs } from "../components/Tabs";
 import { usePolling } from "../hooks/usePolling";
 import { platformApi } from "../services/platformApi";
-import type { PackageSchedule, PackageSecret, RunSummary, ScheduleUpsertRequest, SecretUpsertRequest } from "../types/api";
+import type { AgentPackage, PackageSchedule, PackageSecret, RunSummary, ScheduleUpsertRequest, SecretUpsertRequest } from "../types/api";
 import { formatTimestamp } from "../utils/format";
 
 type RunDrilldownView = "events" | "logs";
@@ -37,6 +39,9 @@ export function PackagesPage() {
   const [scheduleForm, setScheduleForm] = useState<ScheduleUpsertRequest>({ schedule_type: "interval", interval_seconds: 300, enabled: true });
   const [secretForm, setSecretForm] = useState<SecretUpsertRequest>({ key_name: "", value: "" });
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [packageFilterText, setPackageFilterText] = useState("");
+  const [packageGridApi, setPackageGridApi] = useState<GridApi<AgentPackage> | null>(null);
+  const [visiblePackageRows, setVisiblePackageRows] = useState(0);
 
   const selectedPackage = (packagesState.data || []).find((pkg) => pkg.id === selectedPackageId) || null;
   const schedulesState = usePolling<PackageSchedule[]>(
@@ -135,11 +140,86 @@ export function PackagesPage() {
     return rows;
   }, [missingSecretKeys, requiredSecretKeys, secretsForSelectedPackage]);
 
+  const packageColumnDefs = useMemo<ColDef<AgentPackage>[]>(
+    () => [
+      { headerName: "ID", field: "id", width: 96, sort: "desc" },
+      { headerName: "Name", field: "name", minWidth: 200, flex: 1 },
+      { headerName: "Version", field: "version", width: 130 },
+      {
+        headerName: "Language",
+        field: "language",
+        width: 140,
+        valueGetter: ({ data }) => data?.language || "-",
+      },
+      { headerName: "Deployment", field: "deployment", width: 140 },
+      {
+        headerName: "Runtime",
+        field: "runtime_mode",
+        width: 140,
+        valueGetter: ({ data }) => data?.runtime_mode || "batch",
+      },
+      {
+        headerName: "Status",
+        minWidth: 220,
+        valueGetter: ({ data }) =>
+          (data?.missing_secret_keys || []).length ? `On hold (${data?.missing_secret_keys?.length || 0} secrets missing)` : "Ready",
+      },
+    ],
+    [],
+  );
+
+  const packageDefaultColDef = useMemo<ColDef<AgentPackage>>(
+    () => ({
+      sortable: true,
+      filter: true,
+      resizable: true,
+      floatingFilter: true,
+    }),
+    [],
+  );
+
+  function refreshVisiblePackageRowCount(api: GridApi<AgentPackage>) {
+    setVisiblePackageRows(api.getDisplayedRowCount());
+  }
+
+  function handlePackageGridReady(event: GridReadyEvent<AgentPackage>) {
+    setPackageGridApi(event.api);
+    event.api.setGridOption("quickFilterText", packageFilterText);
+    refreshVisiblePackageRowCount(event.api);
+  }
+
+  function handlePackageRowClick(event: RowClickedEvent<AgentPackage>) {
+    if (event.data?.id) {
+      setSelectedPackageId(event.data.id);
+    }
+  }
+
   useEffect(() => {
     if (!selectedPackageId && packagesState.data?.length) {
       setSelectedPackageId(packagesState.data[0].id);
     }
   }, [packagesState.data, selectedPackageId]);
+
+  useEffect(() => {
+    if (!packageGridApi) {
+      return;
+    }
+    packageGridApi.setGridOption("quickFilterText", packageFilterText);
+    refreshVisiblePackageRowCount(packageGridApi);
+  }, [packageFilterText, packageGridApi]);
+
+  useEffect(() => {
+    if (!packageGridApi) {
+      return;
+    }
+
+    packageGridApi.forEachNode((node) => {
+      const isSelected = Boolean(selectedPackageId && node.data?.id === selectedPackageId);
+      node.setSelected(isSelected);
+    });
+
+    refreshVisiblePackageRowCount(packageGridApi);
+  }, [packageGridApi, selectedPackageId, packagesState.data]);
 
   useEffect(() => {
     if (isInternalSearchUpdateRef.current) {
@@ -275,25 +355,31 @@ export function PackagesPage() {
         {packagesState.loading ? <div className="page-state">Loading packages...</div> : null}
         {packagesState.error ? <div className="page-state page-state--error">{packagesState.error}</div> : null}
         {packagesState.data?.length ? (
-          <div className="catalog-list">
-            {packagesState.data.map((pkg) => (
-              <button
-                className={`catalog-card ${pkg.id === selectedPackageId ? "catalog-card--active" : ""}`}
-                key={pkg.id}
-                onClick={() => setSelectedPackageId(pkg.id)}
-                type="button"
-              >
-                <div>
-                  <strong>{pkg.name}</strong>
-                  <p>{pkg.description || "No description provided."}</p>
-                </div>
-                <div className="catalog-card__meta">
-                  <StatusBadge status={pkg.runtime_mode || "batch"} />
-                  {pkg.missing_secret_keys?.length ? <StatusBadge status="blocked" /> : null}
-                  <span>{pkg.deployment}</span>
-                </div>
-              </button>
-            ))}
+          <div className="catalog-table-shell">
+            <div className="catalog-table-toolbar">
+              <p>
+                Showing {visiblePackageRows} of {packagesState.data.length} package rows
+              </p>
+              <input
+                className="catalog-filter-input"
+                onChange={(event) => setPackageFilterText(event.target.value)}
+                placeholder="Filter packages..."
+                value={packageFilterText}
+              />
+            </div>
+            <div className="ag-theme-quartz-dark catalog-grid">
+              <AgGridReact<AgentPackage>
+                columnDefs={packageColumnDefs}
+                defaultColDef={packageDefaultColDef}
+                onFilterChanged={(event) => refreshVisiblePackageRowCount(event.api)}
+                onGridReady={handlePackageGridReady}
+                onRowClicked={handlePackageRowClick}
+                onSortChanged={(event) => refreshVisiblePackageRowCount(event.api)}
+                rowData={packagesState.data}
+                rowSelection={{ mode: "singleRow" }}
+                suppressCellFocus
+              />
+            </div>
           </div>
         ) : !packagesState.loading ? (
           <EmptyState title="No packages registered" description="No package metadata found yet. Register packages through your deployment flow and they will appear here." />

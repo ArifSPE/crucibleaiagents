@@ -5,17 +5,53 @@ import { usePolling } from "../hooks/usePolling";
 import { platformApi } from "../services/platformApi";
 import type { LlmProviderUpsertRequest } from "../types/api";
 
+const SUPPORTED_PROVIDER_OPTIONS = [
+  "local_ollama",
+  "ollama_cloud",
+  "ibm_watson",
+  "aws_bedrock",
+  "anthropic",
+  "claude",
+] as const;
+
+type SupportedProviderName = (typeof SUPPORTED_PROVIDER_OPTIONS)[number];
+
 const defaultProviderForm: LlmProviderUpsertRequest = {
-  provider_name: "",
+  provider_name: SUPPORTED_PROVIDER_OPTIONS[0],
   description: "",
   endpoint: "",
   credentials: {},
 };
 
+function sanitizeCredentials(rawCredentials: unknown): Record<string, string> | undefined {
+  if (!rawCredentials || typeof rawCredentials !== "object") {
+    return undefined;
+  }
+
+  const cleaned: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rawCredentials as Record<string, unknown>)) {
+    const normalizedKey = String(key || "").trim();
+    const normalizedValue = String(value ?? "").trim();
+    if (normalizedKey && normalizedValue) {
+      cleaned[normalizedKey] = normalizedValue;
+    }
+  }
+
+  return Object.keys(cleaned).length ? cleaned : undefined;
+}
+
+function normalizeProviderName(value: string): SupportedProviderName | null {
+  const normalized = String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
+  if ((SUPPORTED_PROVIDER_OPTIONS as readonly string[]).includes(normalized)) {
+    return normalized as SupportedProviderName;
+  }
+  return null;
+}
+
 export function ProvidersPage() {
   const providersState = usePolling(() => platformApi.listProviders(), 15000);
   const [providerForm, setProviderForm] = useState<LlmProviderUpsertRequest>(defaultProviderForm);
-  const [credentialsText, setCredentialsText] = useState('{\n  "api_key": ""\n}');
+  const [credentialsText, setCredentialsText] = useState("{}");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -24,14 +60,23 @@ export function ProvidersPage() {
     setSaving(true);
     setFeedback(null);
     try {
-      const credentials = credentialsText.trim() ? JSON.parse(credentialsText) as Record<string, string> : undefined;
+      const normalizedProviderName = normalizeProviderName(providerForm.provider_name);
+      if (!normalizedProviderName) {
+        setFeedback(`Unsupported provider selection '${providerForm.provider_name}'. Choose one of: ${SUPPORTED_PROVIDER_OPTIONS.join(", ")}`);
+        return;
+      }
+
+      const parsedCredentials = credentialsText.trim() ? (JSON.parse(credentialsText) as unknown) : undefined;
+      const credentials = sanitizeCredentials(parsedCredentials);
       await platformApi.createProvider({
-        ...providerForm,
+        provider_name: normalizedProviderName,
+        description: providerForm.description?.trim() || undefined,
+        endpoint: providerForm.endpoint?.trim() || undefined,
         credentials,
       });
       await providersState.refresh();
       setProviderForm(defaultProviderForm);
-      setCredentialsText('{\n  "api_key": ""\n}');
+      setCredentialsText("{}");
       setFeedback("Provider created successfully.");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to create provider.");
@@ -66,7 +111,17 @@ export function ProvidersPage() {
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
             <span>Provider name</span>
-            <input value={providerForm.provider_name} onChange={(event) => setProviderForm((prev) => ({ ...prev, provider_name: event.target.value }))} required />
+            <select
+              value={providerForm.provider_name}
+              onChange={(event) => setProviderForm((prev) => ({ ...prev, provider_name: event.target.value }))}
+              required
+            >
+              {SUPPORTED_PROVIDER_OPTIONS.map((providerName) => (
+                <option key={providerName} value={providerName}>
+                  {providerName}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             <span>Endpoint</span>

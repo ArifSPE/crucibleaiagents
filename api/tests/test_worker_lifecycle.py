@@ -142,7 +142,21 @@ def test_worker_container_deployment_uses_docker_runner(client, db, monkeypatch,
         def kill(self):
             return None
 
+    class _FakeRunResult:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def _fake_run(cmd, capture_output=True, text=True, timeout=None):
+        if len(cmd) >= 3 and cmd[0] == "docker" and cmd[1] == "inspect":
+            return _FakeRunResult(returncode=0, stdout="container-real-id\n")
+        if len(cmd) >= 3 and cmd[0] == "docker" and cmd[1] == "rm":
+            return _FakeRunResult(returncode=0, stdout="", stderr="")
+        return _FakeRunResult(returncode=0, stdout="", stderr="")
+
     monkeypatch.setattr(worker_module.subprocess, "Popen", _FakePopen)
+    monkeypatch.setattr(worker_module.subprocess, "run", _fake_run)
 
     claimed = worker_module._claim_next_run()
     assert claimed is not None
@@ -450,3 +464,112 @@ def test_daemon_container_run_starts_detached_and_stays_running(client, db, monk
     assert "-d" in cmd
     assert "-p" in cmd
     assert "TAVILY_API_KEY=daemon-secret" in cmd
+
+
+def test_reconcile_batch_running_with_missing_container_marks_failed(client, db, monkeypatch):
+    pkg = AgentPackage(
+        name="reconcile-missing-container",
+        version="1.0.0",
+        language="python",
+        deployment="container",
+        runtime_mode="batch",
+    )
+    db.add(pkg)
+    db.commit()
+    db.refresh(pkg)
+
+    run = Runs(
+        agent_package_id=pkg.id,
+        status="running",
+        runtime_mode="batch",
+        container_id="missing-container-id",
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    test_session_factory = sessionmaker(bind=db.bind, autocommit=False, autoflush=False)
+    monkeypatch.setattr(worker_module, "SessionLocal", test_session_factory)
+
+    class _FakeRunResult:
+        def __init__(self, returncode=1, stdout="", stderr="not found"):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    monkeypatch.setattr(worker_module.subprocess, "run", lambda *args, **kwargs: _FakeRunResult())
+
+    reconciled = worker_module.reconcile_batch_container_runs()
+    assert reconciled == 1
+
+    verify_db = test_session_factory()
+    try:
+        updated = verify_db.query(Runs).filter(Runs.id == run.id).first()
+        assert updated is not None
+        assert updated.status == "failed"
+        assert updated.container_id is None
+        assert "Recovered stale batch run" in (updated.error or "")
+    finally:
+        verify_db.close()
+
+
+def test_reconcile_batch_running_with_exited_container_marks_completed_and_cleans_up(client, db, monkeypatch):
+    pkg = AgentPackage(
+        name="reconcile-exited-container",
+        version="1.0.0",
+        language="python",
+        deployment="container",
+        runtime_mode="batch",
+    )
+    db.add(pkg)
+    db.commit()
+    db.refresh(pkg)
+
+    run = Runs(
+        agent_package_id=pkg.id,
+        status="running",
+        runtime_mode="batch",
+        container_id="exited-container-id",
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    test_session_factory = sessionmaker(bind=db.bind, autocommit=False, autoflush=False)
+    monkeypatch.setattr(worker_module, "SessionLocal", test_session_factory)
+
+    class _FakeRunResult:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    calls = {"rm": 0}
+
+    def _fake_run(cmd, capture_output=True, text=True, timeout=None):
+        if len(cmd) >= 3 and cmd[0] == "docker" and cmd[1] == "inspect":
+            return _FakeRunResult(
+                returncode=0,
+                stdout=json.dumps({"Running": False, "ExitCode": 0}),
+                stderr="",
+            )
+        if len(cmd) >= 3 and cmd[0] == "docker" and cmd[1] == "rm":
+            calls["rm"] += 1
+            return _FakeRunResult(returncode=0, stdout="", stderr="")
+        return _FakeRunResult(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(worker_module.subprocess, "run", _fake_run)
+
+    reconciled = worker_module.reconcile_batch_container_runs()
+    assert reconciled == 1
+    assert calls["rm"] == 1
+
+    verify_db = test_session_factory()
+    try:
+        updated = verify_db.query(Runs).filter(Runs.id == run.id).first()
+        assert updated is not None
+        assert updated.status == "completed"
+        assert updated.exit_code == 0
+        assert updated.container_id is None
+    finally:
+        verify_db.close()

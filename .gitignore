@@ -14,6 +14,10 @@ __pycache__
 package/deployed/**/node_modules/
 package/deployed/**/package-lock.json
 
+# Node and frontend build artifacts
+**/node_modules/
+**/dist/
+
 # Generated package runtime data
 package/deployed/
 package/failed/
@@ -23,3 +27,4 @@ package/archives/
 # Local runtime artifacts
 .local_worker.pid
 logs/*.log
+.sfdx
