@@ -1,8 +1,9 @@
 import json
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from utils import dependency as dependencies
+from utils.rate_limit import limiter
 
 #from middleware.auth import _is_watcher_request
 from services.package_service import (
@@ -33,7 +34,8 @@ def get_package(package_id: int):
 
 
 @router.post("/packages/register")
-def register_package(payload: PackageRegisterRequest):
+@limiter.limit("30/minute")
+def register_package(request: Request, payload: PackageRegisterRequest):
     """Register package metadata without uploading zip bytes."""
     with dependencies.db_session() as db:
         package, created, package_action, provisioned_secret_keys, missing_required_secret_keys, effective_schedule_enabled = svc_register_package(db, payload)

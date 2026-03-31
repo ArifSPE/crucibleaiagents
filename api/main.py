@@ -9,6 +9,9 @@ import schemas.model as model  # noqa: F401  # Import models so SQLAlchemy regis
 from utils.logger import get_logger,log_event, log_exception
 from contextlib import asynccontextmanager
 import uvicorn
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from utils.rate_limit import limiter
 from routers import packages, schedules, secrets, runs, llm_providers
 
 # Secure default: only allow localhost for development unless overridden
@@ -16,6 +19,7 @@ from utils.config import ( _CORS_ORIGINS_DEFAULT,STORAGE_DIR,
     ARCHIVE_DIR, ALLOWED_LLM_PROVIDERS, LLM_PROVIDER_CREDENTIAL_TEMPLATES)
 
 _LOGGER = get_logger("api.main")
+_environment = os.getenv("ENVIRONMENT", "production").strip().lower()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,15 +32,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Crucible AI Agents Platform API", 
               version="1.0",
-              docs_url="/docs",
-              redoc_url="/redoc",
-              openapi_url="/openapi.json",
+              docs_url="/docs" if _environment == "development" else None,
+              redoc_url="/redoc" if _environment == "development" else None,
+              openapi_url="/openapi.json" if _environment == "development" else None,
               lifespan=lifespan
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+_cors_origins = os.getenv('CORS_ORIGINS', _CORS_ORIGINS_DEFAULT).split(",")
+if "*" in _cors_origins and _environment != "development":
+    raise RuntimeError(
+        "CORS wildcard '*' is not permitted in non-development environments. "
+        "Set CORS_ORIGINS to a comma-separated list of explicit origins."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv('CORS_ORIGINS', _CORS_ORIGINS_DEFAULT).split(","),
+    allow_origins=_cors_origins,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Agentflow-Token", "X-Agentflow-Source"],
 )

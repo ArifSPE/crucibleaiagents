@@ -67,6 +67,8 @@ BUILD_SERVICES=()
 DAEMON=false
 LOCAL_WATCHER=false
 LOCAL_WORKER=false
+RESTART_LOCAL_WATCHER=false
+RESTART_LOCAL_WORKER=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -139,6 +141,22 @@ fi
 
 log_success "Prerequisites checked"
 echo
+
+# Stop existing local host processes before recycling docker services.
+if [ -f "$PROJECT_ROOT/.local_watcher.pid" ]; then
+    RESTART_LOCAL_WATCHER=true
+    log_info "Stopping existing local watcher before platform startup..."
+    bash "$SCRIPT_DIR/run_local_watcher.sh" stop || true
+    echo
+fi
+
+if [ -f "$PROJECT_ROOT/.local_worker.pid" ]; then
+    RESTART_LOCAL_WORKER=true
+    log_info "Stopping existing local worker before platform startup..."
+
+    bash "$SCRIPT_DIR/run_local_worker.sh" stop || true
+    echo
+fi
 
 # Build if requested
 if [ "$BUILD" = true ]; then
@@ -269,8 +287,8 @@ docker-compose up -d worker_container
 log_success "Worker started"
 echo
 
-# Start local watcher if requested
-if [ "$LOCAL_WATCHER" = true ]; then
+# Start local watcher if requested or was previously running
+if [ "$LOCAL_WATCHER" = true ] || [ "$RESTART_LOCAL_WATCHER" = true ]; then
     log_info "  → Starting local watcher process..."
     if bash "$SCRIPT_DIR/run_local_watcher.sh" start; then
         log_success "Local watcher started"
@@ -280,25 +298,14 @@ if [ "$LOCAL_WATCHER" = true ]; then
     echo
 fi
 
-# Start local worker if requested
-if [ "$LOCAL_WORKER" = true ]; then
+# Start local worker if requested or was previously running
+if [ "$LOCAL_WORKER" = true ] || [ "$RESTART_LOCAL_WORKER" = true ]; then
     log_info "  → Starting local worker process..."
 
-    if pgrep -af "python .*worker/local_worker.py" >/dev/null 2>&1; then
-        log_warn "Local worker is already running"
+    if bash "$SCRIPT_DIR/run_local_worker.sh" start; then
+        log_success "Local worker started"
     else
-        local_worker_pid_file="$PROJECT_ROOT/.local_worker.pid"
-        nohup bash "$SCRIPT_DIR/run_local_worker_host.sh" >/dev/null 2>&1 &
-        local_worker_pid=$!
-        echo "$local_worker_pid" > "$local_worker_pid_file"
-        sleep 1
-
-        if kill -0 "$local_worker_pid" 2>/dev/null; then
-            log_success "Local worker started (PID: $local_worker_pid)"
-            log_info "Logs: $PROJECT_ROOT/logs/local_worker.log"
-        else
-            log_warn "Failed to confirm local worker startup; check logs/local_worker.log"
-        fi
+        log_warn "Failed to start local worker"
     fi
     echo
 fi
@@ -340,7 +347,7 @@ ${BLUE}Useful commands:${NC}
 ${BLUE}Next steps:${NC}
   1. Verify API is responding:  curl http://localhost:8080/health
   2. View logs:                ./scripts/logs.sh
-    3. Start local worker:       ./scripts/start.sh --local-worker
+    3. Start local worker:       ./scripts/run_local_worker.sh start
   4. Start local watcher:      ./scripts/run_local_watcher.sh start
 
 EOF

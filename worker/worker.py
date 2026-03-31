@@ -567,7 +567,7 @@ def _load_package_secret_environment(package_id: int) -> dict[str, str]:
             "worker.secrets_loaded",
             f"Loaded {len(resolved)} package secrets",
             package_id=package_id,
-            secret_keys=list(resolved.keys()),
+            secret_count=len(resolved),
         )
 
     return resolved
@@ -599,9 +599,19 @@ def _resolve_workspace(storage_path: Optional[str]) -> Path:
 
 
 def _resolve_entrypoint(language: str, workspace: Path, configured: Optional[str]) -> Path:
+    workspace_resolved = workspace.resolve()
+
+    def _safe_candidate(rel: str) -> Optional[Path]:
+        """Resolve candidate path and assert it stays within the workspace."""
+        candidate = (workspace / rel).resolve()
+        # Guard against path traversal via symlinks or ".." sequences
+        if not str(candidate).startswith(str(workspace_resolved) + os.sep):
+            raise ValueError(f"Entrypoint path escapes workspace boundary: {rel!r}")
+        return candidate if candidate.exists() and candidate.is_file() else None
+
     if configured:
-        candidate = workspace / configured
-        if candidate.exists() and candidate.is_file():
+        candidate = _safe_candidate(configured)
+        if candidate:
             return candidate
 
     defaults = {
@@ -611,8 +621,8 @@ def _resolve_entrypoint(language: str, workspace: Path, configured: Optional[str
     }
 
     for item in defaults.get(language, ["src/agent.py"]):
-        candidate = workspace / item
-        if candidate.exists() and candidate.is_file():
+        candidate = _safe_candidate(item)
+        if candidate:
             return candidate
 
     raise FileNotFoundError(f"No entrypoint found for language={language} workspace={workspace}")
@@ -790,7 +800,7 @@ def _execute_container(run_id: int, package: dict, workspace: Path, timeout_seco
             "worker.container_secrets_injected",
             level="INFO",
             message=f"Injected {secret_count} environment secrets into container",
-            payload={"secret_count": secret_count, "secret_keys": list(secret_env.keys())},
+            payload={"secret_count": secret_count},
         )
 
     cmd.append(runner_image)

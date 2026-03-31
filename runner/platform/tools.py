@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
@@ -58,12 +59,20 @@ class ShellExecutor:
         self.logger = logging.getLogger("runner.tools.shell")
 
     def run(self, command: str, cwd: Optional[str] = None) -> ShellResult:
-        program = command.split()[0] if command.strip() else ""
+        try:
+            args = shlex.split(command)
+        except ValueError as exc:
+            raise ValueError(f"Invalid command string: {exc}") from exc
+
+        if not args:
+            raise ValueError("Empty command")
+
+        program = args[0]
         if self.allowed_commands and program not in self.allowed_commands:
             raise ValueError(f"Command not allowed: {program}")
 
         t0 = time.time()
-        proc = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True, timeout=self.timeout)
+        proc = subprocess.run(args, shell=False, cwd=cwd, capture_output=True, text=True, timeout=self.timeout)
         return ShellResult(
             stdout=proc.stdout,
             stderr=proc.stderr,

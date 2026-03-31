@@ -64,17 +64,18 @@ show_menu() {
 
 # Service selection menu
 show_service_menu() {
-    echo
-    echo -e "${MAGENTA}Select service:${NC}"
-    echo "  1) all (all services)"
-    echo "  2) api"
-    echo "  3) db"
-    echo "  4) watcher"
-    echo "  5) worker_container"
-    echo "  6) docker-proxy"
-    echo "  7) local_watcher"
-    echo "  0) Back"
-    echo
+    echo >&2
+    echo -e "${MAGENTA}Select service:${NC}" >&2
+    echo "  1) all (all services)" >&2
+    echo "  2) api" >&2
+    echo "  3) db" >&2
+    echo "  4) watcher" >&2
+    echo "  5) worker_container" >&2
+    echo "  6) docker-proxy" >&2
+    echo "  7) local_watcher" >&2
+    echo "  8) local_worker" >&2
+    echo "  0) Back" >&2
+    echo >&2
 }
 
 # Shell operations menu
@@ -96,7 +97,7 @@ show_shell_menu() {
 # Get service selection
 get_service() {
     show_service_menu
-    read -p "Selection: " service_choice
+    read -r -p "Selection: " service_choice >&2
     case $service_choice in
         1) echo "all" ;;
         2) echo "api" ;;
@@ -105,6 +106,7 @@ get_service() {
         5) echo "worker_container" ;;
         6) echo "docker-proxy" ;;
         7) echo "local_watcher" ;;
+        8) echo "local_worker" ;;
         0) echo "back" ;;
         *) echo "invalid" ;;
     esac
@@ -148,8 +150,8 @@ main() {
                 docker-compose logs -f worker_container | grep daemon.monitor
                 ;;
             7)
-                if [ -x "$SCRIPT_DIR/run_local_worker_host.sh" ]; then
-                    bash "$SCRIPT_DIR/run_local_worker_host.sh"
+                if [ -f "$SCRIPT_DIR/run_local_worker.sh" ]; then
+                    bash "$SCRIPT_DIR/run_local_worker.sh" start
                 else
                     log_error "Local worker script not found"
                 fi

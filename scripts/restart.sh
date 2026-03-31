@@ -51,6 +51,7 @@ SERVICES:
     docker-proxy     Docker socket proxy
     runner           Agent runner (if enabled)
     local_watcher    Local watcher process (host)
+    local_worker     Local worker process (host)
 
 OPTIONS:
     --hard           Force restart (kill and restart immediately)
@@ -65,6 +66,7 @@ EXAMPLES:
     $0                      # Restart all services
     $0 api                  # Restart API gracefully
     $0 local_watcher        # Restart local watcher process
+    $0 local_worker         # Restart local worker process
     $0 worker_container     # Restart worker with daemon monitor
     $0 db --hard            # Force restart database
     $0 api --rebuild        # Rebuild and restart API
@@ -80,6 +82,8 @@ GRACEFUL=true
 TIMEOUT=30
 NO_DEPS=false
 REBUILD=false
+RESTART_LOCAL_WATCHER=false
+RESTART_LOCAL_WORKER=false
 
 # Check if first arg is a service
 if [[ $# -gt 0 ]] && ! [[ $1 =~ ^- ]]; then
@@ -149,25 +153,45 @@ if [ "$SERVICE" = "local_watcher" ]; then
     exit 0
 fi
 
-# Handle "all" to include local_watcher
+# Handle local_worker specially (not a docker-compose service)
+if [ "$SERVICE" = "local_worker" ]; then
+    log_info "Restarting local worker process..."
+
+    bash "$SCRIPT_DIR/run_local_worker.sh" restart
+    echo
+    exit 0
+fi
+
+# Handle "all" to include local_watcher and local_worker
 if [ "$SERVICE" = "all" ]; then
     # Check if local watcher is running
     if [ -f "$PROJECT_ROOT/.local_watcher.pid" ]; then
-        log_info "Also restarting local watcher..."
-        bash "$SCRIPT_DIR/run_local_watcher.sh" restart || true
+        RESTART_LOCAL_WATCHER=true
+        log_info "Stopping local watcher before restarting platform services..."
+        bash "$SCRIPT_DIR/run_local_watcher.sh" stop || true
+        echo
+    fi
+
+    # Check if local worker is running
+    if [ -f "$PROJECT_ROOT/.local_worker.pid" ]; then
+        RESTART_LOCAL_WORKER=true
+        log_info "Stopping local worker before restarting platform services..."
+
+        bash "$SCRIPT_DIR/run_local_worker.sh" stop || true
         echo
     fi
 fi
 
 # Verify service exists (if not "all" and not local_watcher)
 if [ "$SERVICE" != "all" ]; then
-    if ! docker-compose config --services | grep -q "^${SERVICE}$"; then
+    if ! docker-compose config --services | grep -Fxq -- "$SERVICE"; then
         log_error "Service '$SERVICE' not found in docker-compose.yml"
         echo
         log_info "Available services:"
         docker-compose config --services | sed 's/^/  - /'
         log_info "Other services:"
         echo "  - local_watcher (host process)"
+        echo "  - local_worker (host process)"
         echo
         exit 1
     fi
@@ -273,6 +297,18 @@ if [ "$SERVICE" = "db" ] || [ "$SERVICE" = "all" ]; then
         echo -n "."
         sleep 1
     done
+    echo
+fi
+
+if [ "$SERVICE" = "all" ] && [ "$RESTART_LOCAL_WATCHER" = true ]; then
+    log_info "Restarting local watcher process..."
+    bash "$SCRIPT_DIR/run_local_watcher.sh" start || true
+    echo
+fi
+
+if [ "$SERVICE" = "all" ] && [ "$RESTART_LOCAL_WORKER" = true ]; then
+    log_info "Restarting local worker process..."
+    bash "$SCRIPT_DIR/run_local_worker.sh" start || true
     echo
 fi
 

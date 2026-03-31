@@ -1,7 +1,7 @@
 """
 Tests for run endpoints:
   GET  /runs
-  POST /runs?package_id={id}
+  POST /runs  (JSON body {"package_id": id})
   GET  /runs/{id}
   GET  /runs/{id}/logs
   GET  /runs/{id}/events
@@ -18,8 +18,8 @@ def test_list_runs_empty(client):
 
 
 def test_list_runs_returns_all(client, sample_package):
-    client.post(f"/runs?package_id={sample_package.id}")
-    client.post(f"/runs?package_id={sample_package.id}")
+    client.post("/runs", json={"package_id": sample_package.id})
+    client.post("/runs", json={"package_id": sample_package.id})
     data = client.get("/runs").json()
     assert len(data) == 2
 
@@ -40,7 +40,7 @@ def test_list_runs_has_expected_fields(client, sample_run):
 # ── create run ────────────────────────────────────────────────────────────────
 
 def test_create_run(client, sample_package):
-    resp = client.post(f"/runs?package_id={sample_package.id}")
+    resp = client.post("/runs", json={"package_id": sample_package.id})
     assert resp.status_code == 200
     body = resp.json()
     assert body["agent_package_id"] == sample_package.id
@@ -48,7 +48,7 @@ def test_create_run(client, sample_package):
 
 
 def test_create_run_package_not_found(client):
-    resp = client.post("/runs?package_id=99999")
+    resp = client.post("/runs", json={"package_id": 99999})
     assert resp.status_code == 404
 
 
@@ -63,13 +63,13 @@ def test_create_run_blocked_when_required_secrets_missing(client, db, sample_pac
     db.add(PackageSecret(package_id=sample_package.id, key_name="API_KEY", encrypted_value=""))
     db.commit()
 
-    resp = client.post(f"/runs?package_id={sample_package.id}")
+    resp = client.post("/runs", json={"package_id": sample_package.id})
     assert resp.status_code == 409
     assert "Package is on hold" in str(resp.json().get("detail", ""))
 
 
 def test_create_run_inherits_package_timeout(client, sample_package):
-    resp = client.post(f"/runs?package_id={sample_package.id}")
+    resp = client.post("/runs", json={"package_id": sample_package.id})
     assert resp.json()["timeout_seconds"] == sample_package.timeout_seconds
 
 
@@ -232,8 +232,8 @@ def test_get_runs_by_package_returns_correct_runs(client, db, sample_package):
 
 
 def test_get_runs_by_package_ordered_newest_first(client, sample_package):
-    client.post(f"/runs?package_id={sample_package.id}")
-    client.post(f"/runs?package_id={sample_package.id}")
+    client.post("/runs", json={"package_id": sample_package.id})
+    client.post("/runs", json={"package_id": sample_package.id})
     data = client.get(f"/runs/package/{sample_package.id}").json()
     assert len(data) == 2
     assert data[0]["id"] > data[1]["id"]

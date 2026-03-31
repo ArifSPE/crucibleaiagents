@@ -243,7 +243,7 @@ if ! command -v docker-compose &> /dev/null; then
     exit 1
 fi
 
-if ! docker-compose config --services | grep -q "^${SERVICE}$"; then
+if ! docker-compose config --services | grep -Fxq -- "$SERVICE"; then
     log_error "Service '$SERVICE' not found"
     echo
     log_info "Local-file services: api, watcher, worker_container, runner, frontend, local_worker, local_watcher"

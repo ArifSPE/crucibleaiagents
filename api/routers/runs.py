@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import logging
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from utils import dependency as dependencies
+from utils.rate_limit import limiter
 
 #from middleware.auth import _is_watcher_request
 from services.run_service import (
@@ -33,10 +34,14 @@ class RunEventIn(BaseModel):
     message: str | None = None
 
 
+class RunCreateRequest(BaseModel):
+    package_id: int
+
+
 class RunLogIn(BaseModel):
     stream: str = "stdout"
     level: str = "INFO"
-    line: str
+    line: str = Field(..., max_length=10_000)
     section: str | None = None
 
 @router.get("/runs")
@@ -47,7 +52,9 @@ async def list_runs():
         return JSONResponse(content=[serialize_run(run) for run in runs])
     
 @router.post("/runs")
-def create_run(package_id: int):
+@limiter.limit("60/minute")
+def create_run(request: Request, body: RunCreateRequest):
+    package_id = body.package_id
     LOGGER.info(f"Creating new run for package ID: {package_id}")
     with dependencies.db_session() as db:
         new_run = svc_create_run(db, package_id)

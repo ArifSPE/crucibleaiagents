@@ -240,12 +240,14 @@ def extract_package_to_deployed(zip_path: str, package_name: str, package_id: in
         # Extract zip file
         with zipfile.ZipFile(zip_path, "r") as archive:
             extracted_root_abs = os.path.abspath(extracted_path)
-            # Security check: prevent path traversal
-            for member in archive.namelist():
-                member_path = os.path.abspath(os.path.normpath(os.path.join(extracted_path, member)))
+            # Security check: reject symlinks and path traversal
+            for info in archive.infolist():
+                if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                    return False, f"Security: Archive member is a symlink: {info.filename}"
+                member_path = os.path.abspath(os.path.normpath(os.path.join(extracted_path, info.filename)))
                 if not member_path.startswith(extracted_root_abs + os.sep) and member_path != extracted_root_abs:
-                    return False, f"Security: Archive member attempts path traversal: {member}"
-            
+                    return False, f"Security: Archive member attempts path traversal: {info.filename}"
+
             archive.extractall(extracted_path)
         
         log_event(_LOGGER, logging.INFO, "watcher.package_extracted",

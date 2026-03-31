@@ -1,8 +1,9 @@
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from utils import dependency as dependencies
+from utils.rate_limit import limiter
 from services.secret_service import (
     serialize_secret,
     list_secrets as svc_list_secrets,
@@ -41,7 +42,8 @@ def get_secret(package_id: int, secret_id: int):
 
 
 @router.post("/packages/{package_id}/secrets")
-def create_secret(package_id: int, body: SecretUpsert):
+@limiter.limit("60/minute")
+def create_secret(request: Request, package_id: int, body: SecretUpsert):
     """Create a new secret. Value is encrypted before storage."""
     with dependencies.db_session() as db:
         secret, created, missing_secret_keys = create_or_update_secret(db, package_id, body.key_name, body.value)
@@ -58,7 +60,8 @@ def create_secret(package_id: int, body: SecretUpsert):
 
 
 @router.put("/packages/{package_id}/secrets/{secret_id}")
-def update_secret(package_id: int, secret_id: int, body: SecretUpsert):
+@limiter.limit("60/minute")
+def update_secret(request: Request, package_id: int, secret_id: int, body: SecretUpsert):
     """Update key name and/or value of an existing secret. Value is re-encrypted on update."""
     with dependencies.db_session() as db:
         secret, missing_secret_keys = svc_update_secret(db, package_id, secret_id, body.key_name, body.value)
@@ -70,7 +73,8 @@ def update_secret(package_id: int, secret_id: int, body: SecretUpsert):
 
 
 @router.delete("/packages/{package_id}/secrets/{secret_id}")
-def delete_secret(package_id: int, secret_id: int):
+@limiter.limit("60/minute")
+def delete_secret(request: Request, package_id: int, secret_id: int):
     """Delete a secret permanently."""
     with dependencies.db_session() as db:
         key_name, missing_secret_keys = svc_delete_secret(db, package_id, secret_id)

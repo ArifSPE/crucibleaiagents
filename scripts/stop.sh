@@ -152,6 +152,15 @@ if [ -f "$PROJECT_ROOT/.local_watcher.pid" ]; then
     echo
 fi
 
+# Stop local worker if running
+if [ -f "$PROJECT_ROOT/.local_worker.pid" ]; then
+    log_info "Stopping local worker..."
+
+    bash "$SCRIPT_DIR/run_local_worker.sh" stop
+    performed_actions=true
+    echo
+fi
+
 # Stop/remove detached daemon runtime containers.
 # Use both network and name-prefix filters because stale containers may be in Created state
 # and not attached to the daemon network yet.

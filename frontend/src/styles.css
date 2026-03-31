@@ -528,23 +528,126 @@ button {
   height: 390px;
   border-radius: 16px;
   overflow: hidden;
-  border: 1px solid rgba(90, 214, 255, 0.2);
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .ag-theme-quartz-dark {
-  --ag-background-color: #071a3a;
-  --ag-foreground-color: #eaf6ff;
-  --ag-header-background-color: #0b2552;
-  --ag-header-foreground-color: #c8edff;
-  --ag-border-color: rgba(90, 214, 255, 0.22);
-  --ag-row-hover-color: rgba(90, 214, 255, 0.12);
-  --ag-selected-row-background-color: rgba(90, 214, 255, 0.2);
-  --ag-alpine-active-color: #5ad6ff;
+  --ag-background-color: color-mix(in srgb, var(--panel) 88%, black 12%);
+  --ag-foreground-color: var(--text);
+  --ag-header-background-color: color-mix(in srgb, var(--bg-elevated) 88%, #0b2552 12%);
+  --ag-header-foreground-color: var(--accent-soft);
+  --ag-border-color: var(--panel-border);
+  --ag-row-border-color: rgba(157, 182, 204, 0.16);
+  --ag-row-hover-color: rgba(90, 214, 255, 0.1);
+  --ag-selected-row-background-color: rgba(90, 214, 255, 0.17);
+  --ag-odd-row-background-color: rgba(255, 255, 255, 0.015);
+  --ag-input-border-color: rgba(90, 214, 255, 0.34);
+  --ag-input-focus-border-color: var(--accent);
+  --ag-accent-color: var(--accent);
+  --ag-font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   --ag-font-size: 13px;
+  --ag-header-height: 42px;
+  --ag-row-height: 42px;
+}
+
+.ag-theme-quartz-dark .ag-root-wrapper {
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+}
+
+.ag-theme-quartz-dark .ag-header {
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.ag-theme-quartz-dark .ag-cell,
+.ag-theme-quartz-dark .ag-header-cell {
+  border-right-color: rgba(157, 182, 204, 0.14);
+}
+
+.ag-theme-quartz-dark .ag-row.ag-row-selected {
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+.ag-theme-quartz-dark .ag-row:hover {
+  transition: background-color 120ms ease;
+}
+
+.ag-theme-quartz-dark .ag-paging-panel,
+.ag-theme-quartz-dark .ag-status-bar {
+  border-top: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--bg-elevated) 84%, black 16%);
 }
 
 .ag-theme-quartz-dark .ag-header-cell-label {
   font-weight: 600;
+}
+
+.ag-theme-quartz-dark .ag-header-cell,
+.ag-theme-quartz-dark .ag-header-group-cell {
+  color: var(--accent-soft);
+}
+
+.ag-theme-quartz-dark .ag-floating-filter,
+.ag-theme-quartz-dark .ag-floating-filter-body {
+  background: transparent;
+}
+
+.ag-theme-quartz-dark .ag-floating-filter-input {
+  border-radius: 10px;
+}
+
+.ag-theme-quartz-dark .ag-floating-filter-input input,
+.ag-theme-quartz-dark .ag-header-cell .ag-input-field-input,
+.ag-theme-quartz-dark .ag-picker-field-wrapper {
+  border: 1px solid rgba(90, 214, 255, 0.3);
+  border-radius: 10px;
+  background: rgba(5, 18, 40, 0.72);
+  color: var(--text);
+  min-height: 30px;
+  padding-inline: 0.55rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.ag-theme-quartz-dark .ag-floating-filter-input input::placeholder,
+.ag-theme-quartz-dark .ag-input-field-input::placeholder {
+  color: var(--muted);
+  opacity: 0.95;
+}
+
+.ag-theme-quartz-dark .ag-floating-filter-input input:focus,
+.ag-theme-quartz-dark .ag-input-field-input:focus,
+.ag-theme-quartz-dark .ag-picker-field-wrapper:focus-within {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(90, 214, 255, 0.18);
+}
+
+.ag-theme-quartz-dark .ag-header-cell-menu-button,
+.ag-theme-quartz-dark .ag-header-icon,
+.ag-theme-quartz-dark .ag-icon {
+  color: var(--muted);
+  opacity: 0.92;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.ag-theme-quartz-dark .ag-header-cell:hover .ag-header-icon,
+.ag-theme-quartz-dark .ag-header-cell:hover .ag-header-cell-menu-button,
+.ag-theme-quartz-dark .ag-header-cell-menu-button:hover,
+.ag-theme-quartz-dark .ag-header-cell.ag-header-cell-sorted-asc .ag-header-icon,
+.ag-theme-quartz-dark .ag-header-cell.ag-header-cell-sorted-desc .ag-header-icon {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.ag-theme-quartz-dark .ag-filter-toolpanel-header,
+.ag-theme-quartz-dark .ag-filter-toolpanel-group,
+.ag-theme-quartz-dark .ag-menu {
+  background: color-mix(in srgb, var(--panel) 92%, black 8%);
+  color: var(--text);
+  border-color: var(--panel-border);
 }
 
 .catalog-card {

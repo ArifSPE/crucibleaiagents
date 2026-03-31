@@ -26,7 +26,7 @@ export const platformApi = {
       body: JSON.stringify(payload),
     }),
   listRuns: () => apiFetch<RunSummary[]>("/runs"),
-  createRun: (packageId: number) => apiFetch<RunSummary>(`/runs?package_id=${packageId}`, { method: "POST" }),
+  createRun: (packageId: number) => apiFetch<RunSummary>(`/runs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ package_id: packageId }) }),
   getRun: (runId: number) => apiFetch<RunSummary>(`/runs/${runId}`),
   getPackageRuns: (packageId: number) => apiFetch<RunSummary[]>(`/runs/package/${packageId}`),
   getRunLogs: (runId: number) => apiFetch<RunLog[]>(`/runs/${runId}/logs`),

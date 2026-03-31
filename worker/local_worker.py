@@ -31,6 +31,18 @@ def main() -> None:
     if not wait_for_database_ready():
         return
 
+    runner_token = (
+        os.getenv("AGENTFLOW_RUNNER_API_TOKEN")
+        or os.getenv("AGENTFLOW_API_TOKEN")
+        or os.getenv("API_TOKEN", "")
+    )
+    if not runner_token:
+        log_event(
+            LOGGER, logging.WARNING,
+            "worker.startup.no_api_token",
+            "AGENTFLOW_RUNNER_API_TOKEN is not set — runner API calls will be unauthenticated",
+        )
+
     _enqueue_autostart_daemon_runs("local")
     log_event(LOGGER, logging.INFO, "worker.local.startup", "Local worker started", poll_seconds=POLL_SECONDS)
     last_scheduler_check = 0.0  # Force an immediate check on the first iteration

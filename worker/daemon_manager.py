@@ -118,32 +118,31 @@ def get_active_daemon_runs() -> List[Dict]:
 
 
 def update_daemon_run(run_id: int, **kwargs) -> None:
-    """Update daemon run fields. Prevents SQL injection by whitelisting columns."""
+    """Update daemon run fields. Uses ORM to prevent SQL injection."""
     allowed_columns = {"status", "container_id", "restart_count", "last_health_check", 
                       "exit_code", "error", "stopped_at", "completed_at", "exposed_port"}
     unknown = set(kwargs) - allowed_columns
     if unknown:
         raise ValueError(f"update_daemon_run: disallowed column(s): {unknown}")
 
+    if not kwargs:
+        return
+
     with db_session() as db:
-        set_clauses = []
-        params = {"run_id": run_id}
-
-        for key, value in kwargs.items():
-            set_clauses.append(f"{key} = :{key}")
-            params[key] = value
-
-        if set_clauses:
-            set_sql = ", ".join(set_clauses)
-            db.execute(text(f"UPDATE runs SET {set_sql} WHERE id = :run_id"), params)
+        from api.schemas.model import Runs
+        db.query(Runs).filter(Runs.id == run_id).update(kwargs, synchronize_session=False)
 
 
 def check_container_status(container_id: str) -> Optional[Dict]:
     """Check if container exists and is running. Returns status dict or None if not found."""
     try:
-        cmd = f"docker --host {DOCKER_HOST} inspect {container_id} --format='{{{{json .State}}}}'"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
-        
+        cmd = [
+            "docker", "--host", DOCKER_HOST,
+            "inspect", container_id,
+            "--format", "{{json .State}}",
+        ]
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=5)
+
         if result.returncode != 0:
             log_event(
                 LOGGER, 30, "daemon.container.not_found",
@@ -151,8 +150,8 @@ def check_container_status(container_id: str) -> Optional[Dict]:
                 container_id=container_id[:12],
             )
             return None
-        
-        state_json = result.stdout.strip().strip("'\"")
+
+        state_json = (result.stdout or "").strip()
         state = json.loads(state_json)
         
         return {

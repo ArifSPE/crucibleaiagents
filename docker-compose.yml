@@ -19,7 +19,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret123}
       POSTGRES_DB: ${POSTGRES_DB:-crucibleaiagents}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - /Users/arifshaikh/docker-data/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -42,6 +42,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-secret123}@db:5432/${DB_NAME:-crucibleaiagents}
       STORAGE_DIR: /workspace/package/deployed
       ARCHIVE_DIR: /workspace/package/archive
+      PIP_ROOT_USER_ACTION: ignore
     depends_on:
       db:
         condition: service_healthy
@@ -64,6 +65,7 @@ services:
       PACKAGE_WATCHER_DEPLOYED_DIR: /workspace/package/deployed
       PACKAGE_WATCHER_FAILED_DIR: /workspace/package/failed
       PACKAGE_WATCHER_ARCHIVES_DIR: /workspace/package/archives
+      PIP_ROOT_USER_ACTION: ignore
     depends_on:
       api:
         condition: service_started

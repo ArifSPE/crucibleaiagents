@@ -199,6 +199,17 @@ else
     log_status "local_watcher" "down"
 fi
 
+# Check local worker process
+if [ -f "$PROJECT_ROOT/.local_worker.pid" ]; then
+    if bash "$SCRIPT_DIR/run_local_worker.sh" status --no-color >/dev/null 2>&1; then
+        log_status "local_worker" "running"
+    else
+        log_status "local_worker" "down"
+    fi
+else
+    log_status "local_worker" "down"
+fi
+
 echo
 
 # Port Status

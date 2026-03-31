@@ -102,6 +102,52 @@ Manage the local watcher process running on the host (not in Docker).
 
 ---
 
+### ⚙️ `run_local_worker.sh` - Local Worker Manager
+
+Manage the local worker process running on the host (not in Docker).
+
+**Usage:**
+```bash
+./scripts/run_local_worker.sh [COMMAND] [OPTIONS]
+```
+
+**Commands:**
+- `start` - Start the local worker process
+- `stop` - Stop the local worker process
+- `status` - Check if worker is running
+- `restart` - Restart the worker
+- `logs` - Show worker logs
+
+**Options:**
+- `-f, --follow` - Follow logs in real-time (with 'logs' command)
+- `-n N` - Show last N lines (with 'logs' command, default: 50)
+- `--no-color` - Disable colored output
+- `-h, --help` - Show help
+
+**Examples:**
+```bash
+# Start local worker
+./scripts/run_local_worker.sh start
+
+# Check status
+./scripts/run_local_worker.sh status
+
+# Follow logs
+./scripts/run_local_worker.sh logs -f
+
+# Restart
+./scripts/run_local_worker.sh restart
+```
+
+**What it does:**
+1. ✅ Runs `worker/local_worker.py` as a background host process through `run_local_worker_host.sh`
+2. ✅ Logs output to `logs/local_worker.log`
+3. ✅ Stores PID in `.local_worker.pid`
+4. ✅ Graceful shutdown on stop (SIGTERM, then SIGKILL if needed)
+5. ✅ Status checks with process inspection
+
+---
+
 ### 🧪 `run_tests.sh` - Test Runner
 
 Run test suites with simple presets and pass-through pytest options.
@@ -151,6 +197,7 @@ Starts all platform services in correct dependency order with health checks.
 - `--build` - Build images before starting
 - `--daemon` - Run in background (default: show live logs)
 - `--local-watcher` - Also start local watcher process
+- `--local-worker` - Also start local worker process
 - `--no-color` - Disable colored output
 - `--help` - Show help
 
@@ -165,6 +212,9 @@ Starts all platform services in correct dependency order with health checks.
 # Start with local watcher
 ./scripts/start.sh --daemon --local-watcher
 
+# Start with local worker
+./scripts/start.sh --daemon --local-worker
+
 # Just start in background
 ./scripts/start.sh --daemon
 ```
@@ -177,8 +227,9 @@ Starts all platform services in correct dependency order with health checks.
 5. ✅ Starts API with health checks
 6. ✅ Starts watcher, worker, and other services
 7. ✅ **Optionally** starts local watcher if `--local-watcher` flag used
-8. ✅ Verifies all services are running
-9. ✅ Shows live logs or runs in background
+8. ✅ **Optionally** starts local worker if `--local-worker` flag used
+9. ✅ Verifies all services are running
+10. ✅ Shows live logs or runs in background
 
 ---
 
@@ -216,8 +267,9 @@ Gracefully stops platform services.
 **What it does:**
 1. ✅ Shows running services
 2. ✅ Stops local watcher if running
-3. ✅ Gracefully stops with 30s timeout (or immediately if --force)
-4. ✅ Optionally removes containers and volumes
+3. ✅ Stops local worker if running
+4. ✅ Gracefully stops with 30s timeout (or immediately if --force)
+5. ✅ Optionally removes containers and volumes
 5. ✅ Preserves restart ability if containers kept
 
 ---
@@ -430,7 +482,7 @@ agent against `local_worker`.
 ./scripts/logs.sh local_watcher -f
 
 # Terminal 5: local worker
-./scripts/run_local_worker_host.sh
+./scripts/run_local_worker.sh start
 ```
 
 ### Daemon Package Testing
