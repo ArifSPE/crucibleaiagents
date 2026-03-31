@@ -146,3 +146,30 @@ class LLMCredential(Base):
     provider: Mapped["LlmProvider"] = relationship(
         "LlmProvider",
         back_populates="credential")
+
+
+class LLMChatMemory(Base):
+    __tablename__ = "llm_chat_memory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    llm_provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("llm_providers.id"), nullable=False, index=True)
+    conversation_id: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    request_id: Mapped[str] = mapped_column(String, nullable=True)
+    role: Mapped[str] = mapped_column(String, nullable=False)  # user, assistant, system
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
+
+
+class LLMChatSummary(Base):
+    __tablename__ = "llm_chat_summary"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    llm_provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("llm_providers.id"), nullable=False, index=True)
+    conversation_id: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False, default="llm")  # llm or fallback
+    memory_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now, index=True)

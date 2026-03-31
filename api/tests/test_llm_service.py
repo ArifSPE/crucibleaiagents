@@ -23,7 +23,9 @@ from services.llm_service import (
     _normalize_llm_provider,
     _validate_credentials_map,
     _serialize_llm_provider,
+    _build_chat_messages,
 )
+from schemas.llm_providers import LLMProviderChatRequest
 from utils.config import ALLOWED_LLM_PROVIDERS
 
 
@@ -167,3 +169,30 @@ def test_serialize_corrupted_credentials_degrades_gracefully():
     result = _serialize_llm_provider(p)
     # Should not raise; gracefully returns empty key list
     assert isinstance(result["credential_keys"], list)
+
+
+def test_build_chat_messages_with_legacy_message():
+    req = LLMProviderChatRequest(provider_name="anthropic", message="hello there")
+    messages = _build_chat_messages(req)
+    assert messages[-1] == {"role": "user", "content": "hello there"}
+
+
+def test_build_chat_messages_with_history_and_window():
+    req = LLMProviderChatRequest(
+        provider_name="anthropic",
+        system_prompt="You are helpful",
+        short_term_memory=[
+            {"role": "user", "content": "old q"},
+            {"role": "assistant", "content": "old a"},
+        ],
+        messages=[
+            {"role": "user", "content": "new q"},
+            {"role": "assistant", "content": "new a"},
+        ],
+        memory_strategy="window",
+        memory_window_size=2,
+    )
+
+    messages = _build_chat_messages(req)
+    assert messages[0] == {"role": "system", "content": "You are helpful"}
+    assert [m["content"] for m in messages[1:]] == ["new q", "new a"]

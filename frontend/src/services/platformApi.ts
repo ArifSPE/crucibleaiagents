@@ -1,6 +1,11 @@
 import { apiFetch } from "./apiClient";
 import type {
   AgentPackage,
+  ChatMemoryPruneResponse,
+  ChatMemoryResponse,
+  ChatMemorySummaryResponse,
+  ChatRequest,
+  ChatResponseEnvelope,
   CreatedEntity,
   HealthResponse,
   LlmProvider,
@@ -57,4 +62,60 @@ export const platformApi = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  sendChatMessage: (providerId: number, payload: ChatRequest) =>
+    apiFetch<ChatResponseEnvelope>(`/chat/${providerId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getChatMemory: (providerId: number, scope: { conversationId?: string; sessionId?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (scope.conversationId) {
+      params.set("conversation_id", scope.conversationId);
+    }
+    if (scope.sessionId) {
+      params.set("session_id", scope.sessionId);
+    }
+    if (typeof scope.limit === "number") {
+      params.set("limit", String(scope.limit));
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return apiFetch<ChatMemoryResponse>(`/chat/${providerId}/memory${suffix}`);
+  },
+  getChatMemorySummary: (providerId: number, scope: { conversationId?: string; sessionId?: string }) => {
+    const params = new URLSearchParams();
+    if (scope.conversationId) {
+      params.set("conversation_id", scope.conversationId);
+    }
+    if (scope.sessionId) {
+      params.set("session_id", scope.sessionId);
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return apiFetch<ChatMemorySummaryResponse>(`/chat/${providerId}/memory/summary${suffix}`);
+  },
+  pruneChatMemory: (scope: { olderThanHours?: number; providerId?: number }) => {
+    const params = new URLSearchParams();
+    if (typeof scope.olderThanHours === "number") {
+      params.set("older_than_hours", String(scope.olderThanHours));
+    }
+    if (typeof scope.providerId === "number") {
+      params.set("llm_provider_id", String(scope.providerId));
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return apiFetch<ChatMemoryPruneResponse>(`/chat/memory/prune${suffix}`, {
+      method: "POST",
+    });
+  },
+  regenerateChatSummary: (providerId: number, scope: { conversationId?: string; sessionId?: string }) => {
+    const params = new URLSearchParams();
+    if (scope.conversationId) {
+      params.set("conversation_id", scope.conversationId);
+    }
+    if (scope.sessionId) {
+      params.set("session_id", scope.sessionId);
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return apiFetch<ChatMemorySummaryResponse>(`/chat/${providerId}/memory/summary/regenerate${suffix}`, {
+      method: "POST",
+    });
+  },
 };

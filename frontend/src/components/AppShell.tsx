@@ -13,6 +13,8 @@ function NavIcon({ path }: { path: string }) {
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", iconPath: "M3 11.5 12 4l9 7.5v8a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" },
+  { to: "/chat", label: "Chat", iconPath: "M4 6h16v9H8l-4 4z M8 10h8 M8 13h5" },
+  { to: "/chat-memory", label: "Chat Memory", iconPath: "M12 8v4l3 3 M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z" },
   { to: "/packages", label: "Packages", iconPath: "M4 7.5 12 3l8 4.5-8 4.5z M4 7.5v9L12 21v-9 M20 7.5v9L12 21" },
   { to: "/watcher", label: "Watcher", iconPath: "M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" },
   { to: "/daemons", label: "Daemons", iconPath: "M4 6h10l6 6v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M14 6v6h6" },

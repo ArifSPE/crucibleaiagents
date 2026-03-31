@@ -28,3 +28,4 @@ package/archives/
 .local_worker.pid
 logs/*.log
 .sfdx
+frontend/tsconfig.app.tsbuildinfo

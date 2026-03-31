@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { AgGridReact } from "ag-grid-react";
-import type { ColDef, GridApi, GridReadyEvent, RowClickedEvent } from "ag-grid-community";
+import {
+  createColumnHelper,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  type SortingState,
+  useReactTable,
+} from "@tanstack/react-table";
 import { EmptyState } from "../components/EmptyState";
 import { SectionCard } from "../components/SectionCard";
 import { StatusBadge } from "../components/StatusBadge";
@@ -40,8 +46,7 @@ export function PackagesPage() {
   const [secretForm, setSecretForm] = useState<SecretUpsertRequest>({ key_name: "", value: "" });
   const [feedback, setFeedback] = useState<string | null>(null);
   const [packageFilterText, setPackageFilterText] = useState("");
-  const [packageGridApi, setPackageGridApi] = useState<GridApi<AgentPackage> | null>(null);
-  const [visiblePackageRows, setVisiblePackageRows] = useState(0);
+  const [packageSorting, setPackageSorting] = useState<SortingState>([{ id: "id", desc: true }]);
 
   const selectedPackage = (packagesState.data || []).find((pkg) => pkg.id === selectedPackageId) || null;
   const schedulesState = usePolling<PackageSchedule[]>(
@@ -140,86 +145,94 @@ export function PackagesPage() {
     return rows;
   }, [missingSecretKeys, requiredSecretKeys, secretsForSelectedPackage]);
 
-  const packageColumnDefs = useMemo<ColDef<AgentPackage>[]>(
-    () => [
-      { headerName: "ID", field: "id", width: 96, sort: "desc" },
-      { headerName: "Name", field: "name", minWidth: 200, flex: 1 },
-      { headerName: "Version", field: "version", width: 130 },
-      {
-        headerName: "Language",
-        field: "language",
-        width: 140,
-        valueGetter: ({ data }) => data?.language || "-",
-      },
-      { headerName: "Deployment", field: "deployment", width: 140 },
-      {
-        headerName: "Runtime",
-        field: "runtime_mode",
-        width: 140,
-        valueGetter: ({ data }) => data?.runtime_mode || "batch",
-      },
-      {
-        headerName: "Status",
-        minWidth: 220,
-        valueGetter: ({ data }) =>
-          (data?.missing_secret_keys || []).length ? `On hold (${data?.missing_secret_keys?.length || 0} secrets missing)` : "Ready",
-      },
-    ],
-    [],
-  );
-
-  const packageDefaultColDef = useMemo<ColDef<AgentPackage>>(
-    () => ({
-      sortable: true,
-      filter: true,
-      resizable: true,
-      floatingFilter: true,
-    }),
-    [],
-  );
-
-  function refreshVisiblePackageRowCount(api: GridApi<AgentPackage>) {
-    setVisiblePackageRows(api.getDisplayedRowCount());
-  }
-
-  function handlePackageGridReady(event: GridReadyEvent<AgentPackage>) {
-    setPackageGridApi(event.api);
-    event.api.setGridOption("quickFilterText", packageFilterText);
-    refreshVisiblePackageRowCount(event.api);
-  }
-
-  function handlePackageRowClick(event: RowClickedEvent<AgentPackage>) {
-    if (event.data?.id) {
-      setSelectedPackageId(event.data.id);
+  const filteredPackages = useMemo(() => {
+    const query = packageFilterText.trim().toLowerCase();
+    if (!query) {
+      return packagesState.data || [];
     }
-  }
+    return (packagesState.data || []).filter((pkg) => {
+      const status = (pkg.missing_secret_keys || []).length
+        ? `on hold ${pkg.missing_secret_keys.length} secrets missing`
+        : "ready";
+      const searchable = [
+        String(pkg.id),
+        pkg.name,
+        pkg.version,
+        pkg.language || "",
+        pkg.deployment || "",
+        pkg.runtime_mode || "batch",
+        status,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return searchable.includes(query);
+    });
+  }, [packageFilterText, packagesState.data]);
+
+  const packageColumnHelper = createColumnHelper<AgentPackage>();
+
+  const packageColumns = useMemo(
+    () => [
+      packageColumnHelper.accessor("id", {
+        id: "id",
+        header: "ID",
+        cell: (info) => info.getValue(),
+      }),
+      packageColumnHelper.accessor("name", {
+        id: "name",
+        header: "Name",
+        cell: (info) => info.getValue(),
+      }),
+      packageColumnHelper.accessor("version", {
+        id: "version",
+        header: "Version",
+        cell: (info) => info.getValue(),
+      }),
+      packageColumnHelper.accessor((row) => row.language || "-", {
+        id: "language",
+        header: "Language",
+        cell: (info) => info.getValue(),
+      }),
+      packageColumnHelper.accessor("deployment", {
+        id: "deployment",
+        header: "Deployment",
+        cell: (info) => info.getValue(),
+      }),
+      packageColumnHelper.accessor((row) => row.runtime_mode || "batch", {
+        id: "runtime_mode",
+        header: "Runtime",
+        cell: (info) => info.getValue(),
+      }),
+      packageColumnHelper.display({
+        id: "status",
+        header: "Status",
+        cell: ({ row }) =>
+          (row.original.missing_secret_keys || []).length
+            ? `On hold (${row.original.missing_secret_keys?.length || 0} secrets missing)`
+            : "Ready",
+      }),
+    ],
+    [packageColumnHelper],
+  );
+
+  const packageTable = useReactTable({
+    data: filteredPackages,
+    columns: packageColumns,
+    state: {
+      sorting: packageSorting,
+    },
+    onSortingChange: setPackageSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  const visiblePackageRows = packageTable.getRowModel().rows.length;
 
   useEffect(() => {
     if (!selectedPackageId && packagesState.data?.length) {
       setSelectedPackageId(packagesState.data[0].id);
     }
   }, [packagesState.data, selectedPackageId]);
-
-  useEffect(() => {
-    if (!packageGridApi) {
-      return;
-    }
-    packageGridApi.setGridOption("quickFilterText", packageFilterText);
-    refreshVisiblePackageRowCount(packageGridApi);
-  }, [packageFilterText, packageGridApi]);
-
-  useEffect(() => {
-    if (!packageGridApi) {
-      return;
-    }
-
-    packageGridApi.forEachNode((node) => {
-      const isSelected = Boolean(selectedPackageId && node.data?.id === selectedPackageId);
-      node.setSelected(isSelected);
-    });
-
-    refreshVisiblePackageRowCount(packageGridApi);
-  }, [packageGridApi, selectedPackageId, packagesState.data]);
 
   useEffect(() => {
     if (isInternalSearchUpdateRef.current) {
@@ -367,18 +380,46 @@ export function PackagesPage() {
                 value={packageFilterText}
               />
             </div>
-            <div className="ag-theme-quartz-dark catalog-grid">
-              <AgGridReact<AgentPackage>
-                columnDefs={packageColumnDefs}
-                defaultColDef={packageDefaultColDef}
-                onFilterChanged={(event) => refreshVisiblePackageRowCount(event.api)}
-                onGridReady={handlePackageGridReady}
-                onRowClicked={handlePackageRowClick}
-                onSortChanged={(event) => refreshVisiblePackageRowCount(event.api)}
-                rowData={packagesState.data}
-                rowSelection={{ mode: "singleRow" }}
-                suppressCellFocus
-              />
+            <div className="catalog-grid">
+              <div className="table-wrap">
+                <table className="data-table catalog-table">
+                  <thead>
+                    {packageTable.getHeaderGroups().map((headerGroup) => (
+                      <tr key={headerGroup.id}>
+                        {headerGroup.headers.map((header) => {
+                          const canSort = header.column.getCanSort();
+                          const sortState = header.column.getIsSorted();
+                          return (
+                            <th
+                              key={header.id}
+                              className={canSort ? "catalog-table__sortable" : ""}
+                              onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                            >
+                              <span>
+                                {flexRender(header.column.columnDef.header, header.getContext())}
+                                {sortState === "asc" ? " ▲" : sortState === "desc" ? " ▼" : ""}
+                              </span>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </thead>
+                  <tbody>
+                    {packageTable.getRowModel().rows.map((row) => (
+                      <tr
+                        className={row.original.id === selectedPackageId ? "selected-row" : ""}
+                        key={row.id}
+                        onClick={() => setSelectedPackageId(row.original.id)}
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : !packagesState.loading ? (

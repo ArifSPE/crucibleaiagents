@@ -94,6 +94,90 @@ export interface LlmProvider {
   endpoint: string | null;
 }
 
+export interface ChatMessagePayload {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface ChatRequest {
+  provider_name: string;
+  message?: string;
+  model?: string;
+  system_prompt?: string;
+  messages?: ChatMessagePayload[];
+  short_term_memory?: ChatMessagePayload[];
+  memory_strategy?: "append" | "window" | "summary";
+  memory_window_size?: number;
+  conversation_id?: string;
+  session_id?: string;
+  request_id?: string;
+  temperature?: number;
+  top_p?: number;
+  max_tokens?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChatProviderResponse {
+  provider_id: number;
+  provider: string;
+  endpoint?: string;
+  model?: string;
+  reply: string;
+}
+
+export interface ChatResponseEnvelope {
+  response: ChatProviderResponse;
+}
+
+export interface ChatMemoryItem {
+  id: number;
+  llm_provider_id: number;
+  conversation_id: string | null;
+  session_id: string | null;
+  request_id: string | null;
+  role: "system" | "user" | "assistant";
+  content: string;
+  created_at: string | null;
+}
+
+export interface ChatMemoryResponse {
+  provider_id: number;
+  provider: string;
+  conversation_id: string | null;
+  session_id: string | null;
+  memory_count: number;
+  limit: number;
+  max_stored_turns: number;
+  memory: ChatMemoryItem[];
+}
+
+export interface ChatMemorySummary {
+  id: number;
+  llm_provider_id: number;
+  conversation_id: string | null;
+  session_id: string | null;
+  summary_text: string;
+  source: string;
+  memory_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ChatMemorySummaryResponse {
+  provider_id: number;
+  provider: string;
+  conversation_id: string | null;
+  session_id: string | null;
+  summary: ChatMemorySummary | null;
+}
+
+export interface ChatMemoryPruneResponse {
+  older_than_hours: number;
+  llm_provider_id: number | null;
+  removed_memory_count: number;
+  removed_summary_count: number;
+}
+
 export interface PackageRegisterRequest {
   name: string;
   version: string;

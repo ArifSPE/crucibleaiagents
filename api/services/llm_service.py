@@ -242,12 +242,7 @@ def _resolve_model_name(chat_request: LlmProviderChatRequest, credentials: Dict[
 
 
 def _build_chat_messages(chat_request: LlmProviderChatRequest) -> List[Dict[str, str]]:
-    messages: List[Dict[str, str]] = []
-    system_prompt = (chat_request.system_prompt or "").strip()
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": chat_request.message})
-    return messages
+    return chat_request.build_messages()
 
 
 def _chat_with_ollama(provider: LlmProvider, credentials: Dict[str, str], chat_request: LlmProviderChatRequest) -> Dict[str, Any]:
@@ -310,15 +305,27 @@ def _chat_with_anthropic(provider: LlmProvider, credentials: Dict[str, str], cha
     if not api_key:
         raise HTTPException(status_code=400, detail="Missing provider api_key for Anthropic/Claude")
 
+    all_messages = _build_chat_messages(chat_request)
+    system_chunks = [msg.get("content", "") for msg in all_messages if msg.get("role") == "system"]
+    conversational_messages = [
+        {"role": str(msg.get("role")), "content": str(msg.get("content", ""))}
+        for msg in all_messages
+        if msg.get("role") in {"user", "assistant"}
+    ]
+
+    if not conversational_messages:
+        latest_user_message = chat_request.latest_user_message()
+        if latest_user_message:
+            conversational_messages = [{"role": "user", "content": latest_user_message}]
+
     url = f"{endpoint}/v1/messages"
     payload: Dict[str, Any] = {
         "model": model,
         "max_tokens": chat_request.max_tokens or 256,
-        "messages": [{"role": "user", "content": chat_request.message}],
+        "messages": conversational_messages,
     }
-    system_prompt = (chat_request.system_prompt or "").strip()
-    if system_prompt:
-        payload["system"] = system_prompt
+    if system_chunks:
+        payload["system"] = "\n\n".join([chunk for chunk in system_chunks if chunk][:4])
     if chat_request.temperature is not None:
         payload["temperature"] = chat_request.temperature
 

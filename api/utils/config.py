@@ -2,6 +2,13 @@ import os
 import logging
 from pathlib import Path
 
+
+def _get_bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 def get_package_root() -> Path:
     if os.path.exists('/package'):
         return Path('/package')
@@ -48,3 +55,11 @@ _CORS_ORIGINS_DEFAULT = ",".join([
     "http://127.0.0.1:5174",
     "http://127.0.0.1:5175",
 ])
+
+LLM_CHAT_MEMORY_TTL_HOURS = int(os.getenv("LLM_CHAT_MEMORY_TTL_HOURS", "168"))
+LLM_CHAT_MEMORY_MAX_TURNS = int(os.getenv("LLM_CHAT_MEMORY_MAX_TURNS", "20"))
+LLM_CHAT_MEMORY_READ_LIMIT_DEFAULT = int(os.getenv("LLM_CHAT_MEMORY_READ_LIMIT_DEFAULT", "100"))
+LLM_CHAT_MEMORY_READ_LIMIT_MAX = int(os.getenv("LLM_CHAT_MEMORY_READ_LIMIT_MAX", "500"))
+LLM_CHAT_MEMORY_SUMMARIZATION_ENABLED = _get_bool_env("LLM_CHAT_MEMORY_SUMMARIZATION_ENABLED", True)
+LLM_CHAT_MEMORY_SUMMARIZATION_TRIGGER_TURNS = int(os.getenv("LLM_CHAT_MEMORY_SUMMARIZATION_TRIGGER_TURNS", "8"))
+LLM_CHAT_MEMORY_SUMMARY_INPUT_MAX_MESSAGES = int(os.getenv("LLM_CHAT_MEMORY_SUMMARY_INPUT_MAX_MESSAGES", "40"))
