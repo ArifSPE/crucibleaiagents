@@ -9,6 +9,7 @@ from services.llm_service import (
     update_llm_provider,
     delete_llm_provider,
     _serialize_llm_provider,
+    get_provided_models,
 )
 
 
@@ -20,6 +21,13 @@ _LOGGER = get_logger("api.routers.llm_providers")
 def list_providers():
     with dependencies.db_session() as db:
         providers = list_llm_providers(db)
+        log_event(
+            _LOGGER,
+            20,
+            "llm_provider.listed",
+            "Listed LLM providers",
+            provider_count=len(providers),
+        )
         return [_serialize_llm_provider(p) for p in providers]
 
 
@@ -27,6 +35,14 @@ def list_providers():
 def get_provider(provider_id: int):
     with dependencies.db_session() as db:
         provider = get_llm_provider_or_404(db, provider_id)
+        log_event(
+            _LOGGER,
+            20,
+            "llm_provider.retrieved",
+            "Retrieved LLM provider",
+            provider_id=provider.id,
+            provider=provider.provider,
+        )
         return _serialize_llm_provider(provider)
 
 
@@ -67,3 +83,16 @@ def delete_provider(provider_id: int):
             provider=provider_name,
         )
 
+@router.get("/{llm_provider_id}/models")
+def get_provider_models(llm_provider_id: int):
+    with dependencies.db_session() as db:
+        models = get_provided_models(db, llm_provider_id)
+        log_event(
+            _LOGGER,
+            20,
+            "llm_provider.models.listed",
+            "Listed provider models",
+            provider_id=llm_provider_id,
+            model_count=len(models.models),
+        )
+        return models   

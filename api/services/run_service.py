@@ -2,6 +2,9 @@ from datetime import datetime, timezone
 import json
 from typing import Any, List, Optional, Tuple
 from fastapi import HTTPException
+from utils.logger import get_logger, log_event
+
+LOGGER = get_logger("api.services.run_service")
 
 
 def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
@@ -187,14 +190,18 @@ def serialize_run_event(event: Any) -> dict:
 
 def list_runs(db: Any) -> List[Any]:
     from schemas.model import Runs as Run
-    return db.query(Run).order_by(Run.id.desc()).all()
+    runs = db.query(Run).order_by(Run.id.desc()).all()
+    log_event(LOGGER, 20, "run.listed", "Listed runs", run_count=len(runs))
+    return runs
 
 
 def get_run_or_404(db: Any, run_id: int) -> Any:
     from schemas.model import Runs as Run
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
+        log_event(LOGGER, 30, "run.not_found", "Run not found", run_id=run_id)
         raise HTTPException(status_code=404, detail="Run not found")
+    log_event(LOGGER, 10, "run.retrieved", "Retrieved run", run_id=run_id)
     return run
 
 
@@ -204,12 +211,21 @@ def create_run(db: Any, package_id: int) -> Any:
 
     pkg = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
     if not pkg:
+        log_event(LOGGER, 30, "run.create.package_not_found", "Run creation failed: package not found", package_id=package_id)
         raise HTTPException(status_code=404, detail="Package not found")
 
     missing_secret_keys = _get_missing_required_secret_keys_for_package(db, pkg)
     if missing_secret_keys:
         _refresh_package_secret_metadata(pkg, missing_secret_keys)
         db.commit()
+        log_event(
+            LOGGER,
+            30,
+            "run.create.blocked_missing_secrets",
+            "Run creation blocked: required secrets missing",
+            package_id=package_id,
+            missing_secret_keys_count=len(missing_secret_keys),
+        )
         raise HTTPException(
             status_code=409,
             detail=(
@@ -227,12 +243,23 @@ def create_run(db: Any, package_id: int) -> Any:
     db.add(new_run)
     db.commit()
     db.refresh(new_run)
+    log_event(
+        LOGGER,
+        20,
+        "run.created",
+        "Created run",
+        run_id=new_run.id,
+        package_id=package_id,
+        runtime_mode=new_run.runtime_mode,
+    )
     return new_run
 
 
 def list_runs_by_package(db: Any, package_id: int) -> List[Any]:
     from schemas.model import Runs as Run
-    return db.query(Run).filter(Run.agent_package_id == package_id).order_by(Run.id.desc()).all()
+    runs = db.query(Run).filter(Run.agent_package_id == package_id).order_by(Run.id.desc()).all()
+    log_event(LOGGER, 20, "run.listed_by_package", "Listed runs by package", package_id=package_id, run_count=len(runs))
+    return runs
 
 
 def add_run_event(db: Any, run_id: int, event_type: str, payload: dict, level: Optional[str], category: Optional[str], source: Optional[str], message: Optional[str]) -> Any:
@@ -267,6 +294,17 @@ def add_run_event(db: Any, run_id: int, event_type: str, payload: dict, level: O
 
     db.commit()
     db.refresh(db_event)
+    log_event(
+        LOGGER,
+        10,
+        "run.event.added",
+        "Added run event",
+        run_id=run_id,
+        run_event_type=event_type,
+        event_level=db_event.level,
+        category=db_event.category,
+        source=db_event.source,
+    )
     return db_event
 
 
@@ -284,4 +322,14 @@ def add_run_log(db: Any, run_id: int, stream: str, level: str, line: str, sectio
     db.add(db_log)
     db.commit()
     db.refresh(db_log)
+    log_event(
+        LOGGER,
+        10,
+        "run.log.added",
+        "Added run log",
+        run_id=run_id,
+        stream=stream,
+        log_level=level,
+        section=section,
+    )
     return db_log

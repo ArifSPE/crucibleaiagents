@@ -8,6 +8,7 @@ import type {
   ChatResponseEnvelope,
   CreatedEntity,
   HealthResponse,
+  LlmModelsListResponse,
   LlmProvider,
   LlmProviderUpsertRequest,
   PackageRegisterRequest,
@@ -57,11 +58,19 @@ export const platformApi = {
   deletePackageSecret: (packageId: number, secretId: number) =>
     apiFetch<void>(`/packages/${packageId}/secrets/${secretId}`, { method: "DELETE" }),
   listProviders: () => apiFetch<LlmProvider[]>("/llm-providers"),
+  getProviderModels: (providerId: number) => apiFetch<LlmModelsListResponse>(`/llm-providers/${providerId}/models`),
   createProvider: (payload: LlmProviderUpsertRequest) =>
     apiFetch<LlmProvider>("/llm-providers", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  updateProvider: (providerId: number, payload: LlmProviderUpsertRequest) =>
+    apiFetch<LlmProvider>(`/llm-providers/${providerId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteProvider: (providerId: number) =>
+    apiFetch<void>(`/llm-providers/${providerId}`, { method: "DELETE" }),
   sendChatMessage: (providerId: number, payload: ChatRequest) =>
     apiFetch<ChatResponseEnvelope>(`/chat/${providerId}`, {
       method: "POST",

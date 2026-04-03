@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from utils.secrets_manager import get_secrets_manager
 from utils.config import ARCHIVE_DIR as ARCHIVES_DIR, STORAGE_DIR
+from utils.logger import get_logger, log_event
+
+LOGGER = get_logger("api.services.bot_service")
 
 
 def _tool_catalog() -> List[Dict[str, Any]]:
@@ -53,6 +56,14 @@ def _recommend_tools_for_conversation(user_interests_goals: str, bot_type: str) 
         selected_keys = ["rest.call"]
 
     selected = [item for item in catalog if item["key"] in selected_keys]
+    log_event(
+        LOGGER,
+        20,
+        "bot.tools.recommended",
+        "Recommended tools for conversational bot",
+        bot_type=bot_type,
+        recommended_tool_keys=[item.get("key") for item in selected],
+    )
     return selected
 
 
@@ -115,6 +126,15 @@ def _generate_conversational_package_zip(name_slug: str, manifest: Dict[str, Any
             archive.write(temp_manifest_path, arcname="manifest.json")
             archive.writestr("src/agent.py", agent_source)
             archive.writestr("requirements.txt", "# Standard library only\n")
+        log_event(
+            LOGGER,
+            20,
+            "bot.package.generated",
+            "Generated conversational bot package zip",
+            package_filename=filename,
+            package_path=package_path,
+            bot_name_slug=name_slug,
+        )
     finally:
         if os.path.exists(temp_manifest_path):
             os.remove(temp_manifest_path)
@@ -148,5 +168,18 @@ def _persist_bot_artifacts(package_id: int, bot_name: str, user_name: str, user_
         f.write(bot_md)
     with open(userprofile_md_path, "w", encoding="utf-8") as f:
         f.write(userprofile_md)
+
+    log_event(
+        LOGGER,
+        20,
+        "bot.artifacts.persisted",
+        "Persisted bot artifacts",
+        package_id=package_id,
+        bot_name=bot_name,
+        bot_type=bot_type,
+        tool_key_count=len(tool_keys),
+        bot_md=bot_md_path,
+        userprofile_md=userprofile_md_path,
+    )
 
     return {"bot_md": bot_md_path, "userprofile_md": userprofile_md_path}

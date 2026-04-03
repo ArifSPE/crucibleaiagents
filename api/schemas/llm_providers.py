@@ -3,6 +3,34 @@ from __future__ import annotations
 from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+
+class LLM_Model(BaseModel):
+    """Generic schema for a model returned from an LLM provider's model list endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Provider context (added by the platform, not from the upstream API)
+    provider_id: int
+    provider: str
+    model_endpoint: str
+
+    # Core fields returned by most providers (e.g. Anthropic /v1/models)
+    id: str
+    display_name: Optional[str] = None
+    created_at: Optional[str] = None
+    type: Optional[str] = None
+
+    # Optional capability fields — present in detailed model endpoints, not list endpoints
+    capabilities: Optional[Dict[str, Any]] = None
+    max_input_tokens: Optional[int] = None
+    max_tokens: Optional[int] = None
+
+
+class LLM_ModelsListResponse(BaseModel):
+    """Generic response model to return a list of LLM models from APIs."""
+
+    models: list[LLM_Model] = Field(default_factory=list)
+
 class LLMProviderUpsert(BaseModel):
     provider_name: str
     description: Optional[str] = None

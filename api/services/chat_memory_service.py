@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from schemas.llm_providers import LLMProviderChatRequest, LLMChatMessage
 from schemas.model import LLMChatMemory, LLMChatSummary, LlmProvider
 from services import llm_service
+from utils.logger import get_logger, log_event, log_exception
 from utils.config import (
     LLM_CHAT_MEMORY_MAX_TURNS,
     LLM_CHAT_MEMORY_SUMMARIZATION_ENABLED,
@@ -16,6 +17,9 @@ from utils.config import (
     LLM_CHAT_MEMORY_SUMMARY_INPUT_MAX_MESSAGES,
     LLM_CHAT_MEMORY_TTL_HOURS,
 )
+
+
+LOGGER = get_logger("api.services.chat_memory_service")
 
 
 _ALLOWED_MEMORY_ROLES = {"system", "user", "assistant"}
@@ -72,17 +76,45 @@ def build_summary_query(db: Session, provider_id: int, conversation_id: str | No
 
 def read_memory_rows(db: Session, provider_id: int, conversation_id: str | None, session_id: str | None, limit: int) -> list[LLMChatMemory]:
     require_memory_scope(conversation_id, session_id)
+    log_event(
+        LOGGER,
+        10,
+        "chat_memory.read.start",
+        "Reading persisted chat memory rows",
+        provider_id=provider_id,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        limit=limit,
+    )
     rows = (
         build_memory_query(db, provider_id, conversation_id, session_id)
         .order_by(LLMChatMemory.created_at.desc(), LLMChatMemory.id.desc())
         .limit(limit)
         .all()
     )
+    log_event(
+        LOGGER,
+        10,
+        "chat_memory.read.completed",
+        "Read persisted chat memory rows",
+        provider_id=provider_id,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        row_count=len(rows),
+    )
     return list(reversed(rows))
 
 
 def load_persisted_memory(db: Session, provider_id: int, body: LLMProviderChatRequest, max_rows: int = 400) -> list[LLMChatMessage]:
     if not (body.conversation_id or body.session_id):
+        log_event(
+            LOGGER,
+            10,
+            "chat_memory.load.skipped",
+            "Skipped persisted memory load due to missing memory scope",
+            provider_id=provider_id,
+            request_id=body.request_id,
+        )
         return []
 
     rows = read_memory_rows(db, provider_id, body.conversation_id, body.session_id, max_rows)
@@ -95,6 +127,17 @@ def load_persisted_memory(db: Session, provider_id: int, body: LLMProviderChatRe
         if not content:
             continue
         memory.append(LLMChatMessage(role=role, content=content))
+    log_event(
+        LOGGER,
+        20,
+        "chat_memory.load.completed",
+        "Loaded persisted memory for chat request",
+        provider_id=provider_id,
+        conversation_id=body.conversation_id,
+        session_id=body.session_id,
+        request_id=body.request_id,
+        memory_count=len(memory),
+    )
     return memory
 
 
@@ -151,6 +194,17 @@ def enforce_max_stored_turns(db: Session, provider_id: int, conversation_id: str
     rows_to_delete = rows[max_rows:]
     for row in rows_to_delete:
         db.delete(row)
+    log_event(
+        LOGGER,
+        20,
+        "chat_memory.pruned_by_cap",
+        "Pruned chat memory to enforce max turns",
+        provider_id=provider_id,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        pruned_count=len(rows_to_delete),
+        max_rows=max_rows,
+    )
     return len(rows_to_delete)
 
 
@@ -171,6 +225,17 @@ def prune_expired_memory(db: Session, older_than_hours: int, provider_id: int | 
         db.delete(row)
     for row in summary_rows:
         db.delete(row)
+
+    log_event(
+        LOGGER,
+        20,
+        "chat_memory.pruned_by_ttl",
+        "Pruned expired chat memory by TTL",
+        provider_id=provider_id,
+        older_than_hours=older_than_hours,
+        removed_memory_count=len(memory_rows),
+        removed_summary_count=len(summary_rows),
+    )
 
     return len(memory_rows), len(summary_rows)
 
@@ -224,9 +289,25 @@ def _generate_summary_text(provider: LlmProvider, rows: list[LLMChatMemory]) -> 
         summary_response = llm_service._chat_with_provider(provider, summary_request)
         summary_text = str(summary_response.get("reply", "") if isinstance(summary_response, dict) else "").strip()
         if summary_text:
+            log_event(
+                LOGGER,
+                20,
+                "chat_summary.generated",
+                "Generated chat summary using provider LLM",
+                provider_id=provider.id,
+                provider=provider.provider,
+                row_count=len(rows),
+            )
             return summary_text[:4000], "llm"
-    except Exception:
-        pass
+    except Exception as exc:
+        log_exception(
+            LOGGER,
+            "chat_summary.generation_failed",
+            "Failed to generate summary from provider; falling back",
+            provider_id=provider.id,
+            provider=provider.provider,
+            error=str(exc),
+        )
 
     return _build_fallback_summary(rows), "fallback"
 
@@ -303,6 +384,21 @@ def persist_chat_turn(db: Session, provider: LlmProvider, body: LLMProviderChatR
     db.flush()
     pruned_count = enforce_max_stored_turns(db, provider.id, body.conversation_id, body.session_id)
     summary = maybe_refresh_summary(db, provider, body.conversation_id, body.session_id)
+    log_event(
+        LOGGER,
+        20,
+        "chat_memory.persisted_turn",
+        "Persisted chat turn",
+        provider_id=provider.id,
+        provider=provider.provider,
+        conversation_id=body.conversation_id,
+        session_id=body.session_id,
+        request_id=body.request_id,
+        has_user_message=bool(user_message.strip()),
+        has_assistant_reply=bool(assistant_reply.strip()),
+        pruned_count=pruned_count,
+        summary_source=(summary.source if summary else None),
+    )
     return pruned_count, summary
 
 
@@ -341,6 +437,18 @@ def force_refresh_summary(
         existing.memory_count = len(rows)
 
     db.flush()
+    log_event(
+        LOGGER,
+        20,
+        "chat_summary.force_refreshed",
+        "Force refreshed chat summary",
+        provider_id=provider.id,
+        provider=provider.provider,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        source=(existing.source if existing else None),
+        memory_count=(existing.memory_count if existing else None),
+    )
     return existing
 
 

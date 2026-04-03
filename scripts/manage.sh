@@ -112,6 +112,24 @@ get_service() {
     esac
 }
 
+# Build frontend assets
+build_frontend() {
+    local frontend_dir="$PROJECT_ROOT/frontend"
+    if [ ! -d "$frontend_dir" ]; then
+        log_error "Frontend directory not found: $frontend_dir"
+        return 1
+    fi
+    if ! command -v node &>/dev/null; then
+        log_error "Node.js is not installed or not in PATH"
+        return 1
+    fi
+    log_info "Installing frontend dependencies..."
+    npm --prefix "$frontend_dir" ci
+    log_info "Building frontend..."
+    npm --prefix "$frontend_dir" run build
+    log_success "Frontend built successfully → $frontend_dir/dist"
+}
+
 # Main loop
 main() {
     cd "$PROJECT_ROOT"
@@ -202,10 +220,49 @@ main() {
                 fi
                 ;;
             10)
-                service=$(get_service)
-                if [ "$service" != "back" ] && [ "$service" != "invalid" ]; then
-                    bash "$SCRIPT_DIR/restart.sh" "$service" --rebuild
-                fi
+                while true; do
+                    echo
+                    echo -e "${MAGENTA}Rebuild and Restart Options:${NC}"
+                    echo "  1) Rebuild and restart a service"
+                    echo "  2) Build frontend only (host)"
+                    echo "  3) Build frontend then rebuild and restart a service"
+                    echo "  4) Build frontend and restart frontend container"
+                    echo "  0) Back"
+                    echo
+                    read -p "Selection: " rebuild_choice
+                    case $rebuild_choice in
+                        1)
+                            service=$(get_service)
+                            if [ "$service" != "back" ] && [ "$service" != "invalid" ]; then
+                                bash "$SCRIPT_DIR/restart.sh" "$service" --rebuild
+                            fi
+                            ;;
+                        2)
+                            build_frontend
+                            ;;
+                        3)
+                            build_frontend && \
+                            service=$(get_service) && \
+                            if [ "$service" != "back" ] && [ "$service" != "invalid" ]; then
+                                bash "$SCRIPT_DIR/restart.sh" "$service" --rebuild
+                            fi
+                            ;;
+                        4)
+                            if build_frontend; then
+                                log_info "Restarting frontend container..."
+                                docker-compose restart frontend
+                                log_success "Frontend container restarted with new build"
+                            fi
+                            ;;
+                        0)
+                            break
+                            ;;
+                        *)
+                            log_error "Invalid option"
+                            ;;
+                    esac
+                    read -p "Press Enter to continue..."
+                done
                 ;;
             11)
                 while true; do
@@ -291,6 +348,9 @@ if [[ $# -gt 0 ]]; then
             shift
             bash "$SCRIPT_DIR/run_local_watcher.sh" "$@"
             ;;
+        build-frontend)
+            build_frontend
+            ;;
         *)
             cat << EOF
 Usage: $0 [COMMAND] [OPTIONS]
@@ -302,6 +362,7 @@ COMMANDS:
     status [OPTIONS]       Check platform status
     logs [SERVICE]         View service logs
     watcher [CMD] [OPTS]   Manage local watcher (start|stop|restart|status|logs)
+    build-frontend         Install npm deps and build frontend assets into dist/
     (no args)              Interactive menu
 
 EXAMPLES:
@@ -312,6 +373,7 @@ EXAMPLES:
     $0 watcher start
     $0 watcher logs -f
     $0 restart worker_container
+    $0 build-frontend
 
 Run '$0 COMMAND --help' for command-specific options.
 

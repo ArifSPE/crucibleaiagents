@@ -92,6 +92,27 @@ export interface LlmProvider {
   provider: string;
   description: string | null;
   endpoint: string | null;
+  has_credentials: boolean;
+  credential_keys: string[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface LlmModel {
+  provider_id: number;
+  provider: string;
+  model_endpoint: string;
+  id: string;
+  display_name?: string | null;
+  created_at?: string | null;
+  type?: string | null;
+  capabilities?: Record<string, unknown> | null;
+  max_input_tokens?: number | null;
+  max_tokens?: number | null;
+}
+
+export interface LlmModelsListResponse {
+  models: LlmModel[];
 }
 
 export interface ChatMessagePayload {

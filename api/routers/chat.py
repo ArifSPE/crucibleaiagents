@@ -35,10 +35,32 @@ def read_chat_memory(
     limit: int = Query(default=LLM_CHAT_MEMORY_READ_LIMIT_DEFAULT, ge=1, le=LLM_CHAT_MEMORY_READ_LIMIT_MAX),
 ):
     chat_memory_service.require_memory_scope(conversation_id, session_id)
+    log_event(
+        _LOGGER,
+        20,
+        "chat.memory.read.start",
+        "Reading chat memory",
+        llm_provider_id=llm_provider_id,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        limit=limit,
+    )
 
     with dependencies.db_session() as db:
         provider = _get_provider_or_404(db, llm_provider_id)
         rows = chat_memory_service.read_memory_rows(db, llm_provider_id, conversation_id, session_id, limit)
+        log_event(
+            _LOGGER,
+            20,
+            "chat.memory.read.completed",
+            "Read chat memory",
+            provider_id=provider.id,
+            provider=provider.provider,
+            conversation_id=conversation_id,
+            session_id=session_id,
+            memory_count=len(rows),
+            limit=limit,
+        )
         return {
             "provider_id": provider.id,
             "provider": provider.provider,
@@ -58,10 +80,31 @@ def read_chat_memory_summary(
     session_id: str | None = None,
 ):
     chat_memory_service.require_memory_scope(conversation_id, session_id)
+    log_event(
+        _LOGGER,
+        20,
+        "chat.summary.read.start",
+        "Reading chat memory summary",
+        llm_provider_id=llm_provider_id,
+        conversation_id=conversation_id,
+        session_id=session_id,
+    )
 
     with dependencies.db_session() as db:
         provider = _get_provider_or_404(db, llm_provider_id)
         summary = chat_memory_service.get_summary(db, llm_provider_id, conversation_id, session_id)
+        log_event(
+            _LOGGER,
+            20,
+            "chat.summary.read.completed",
+            "Read chat memory summary",
+            provider_id=provider.id,
+            provider=provider.provider,
+            conversation_id=conversation_id,
+            session_id=session_id,
+            has_summary=bool(summary),
+            source=(summary.source if summary else None),
+        )
         return {
             "provider_id": provider.id,
             "provider": provider.provider,

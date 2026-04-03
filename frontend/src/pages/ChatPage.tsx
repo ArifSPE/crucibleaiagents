@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { usePolling } from "../hooks/usePolling";
 import { platformApi } from "../services/platformApi";
-import type { LlmProvider } from "../types/api";
+import type { LlmModel, LlmProvider } from "../types/api";
 
 interface LocalMessage {
   id: string;
@@ -72,16 +72,18 @@ export function ChatPage() {
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const [modelOverride, setModelOverride] = useState<string>("");
   const [temperature, setTemperature] = useState<string>("0.7");
+  const [modelsState, setModelsState] = useState<{ loading: boolean; error: string | null; models: LlmModel[] }>({
+    loading: false,
+    error: null,
+    models: [],
+  });
 
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const selectedProvider = useMemo<LlmProvider | null>(() => {
-    if (!providers.length) return null;
-    if (selectedProviderId !== null) {
-      return providers.find((p) => p.id === selectedProviderId) ?? null;
-    }
-    return providers[0] ?? null;
+    if (!providers.length || selectedProviderId === null) return null;
+    return providers.find((p) => p.id === selectedProviderId) ?? null;
   }, [providers, selectedProviderId]);
 
   const activeDraftScopeKey = useMemo<string | null>(() => {
@@ -111,8 +113,9 @@ export function ChatPage() {
   function syncInputHeight() {
     const input = inputRef.current;
     if (!input) return;
-    input.style.height = "0px";
-    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+    const minHeight = parseInt(getComputedStyle(input).lineHeight || "20", 10) * (input.rows || 1);
+    input.style.height = `${minHeight}px`;
+    input.style.height = `${Math.min(Math.max(input.scrollHeight, minHeight), 180)}px`;
   }
 
   useEffect(() => {
@@ -129,6 +132,31 @@ export function ChatPage() {
     syncInputHeight();
   }, [draft]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModels(providerId: number) {
+      setModelsState({ loading: true, error: null, models: [] });
+      try {
+        const response = await platformApi.getProviderModels(providerId);
+        if (cancelled) return;
+        setModelsState({ loading: false, error: null, models: response.models ?? [] });
+      } catch (error) {
+        if (cancelled) return;
+        setModelsState({ loading: false, error: isUserFacingError(error), models: [] });
+      }
+    }
+
+    if (!selectedProvider) {
+      setModelsState({ loading: false, error: null, models: [] });
+      return;
+    }
+
+    void loadModels(selectedProvider.id);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvider?.id]);
+
   function handleNewChat() {
     setConversationId(`conv-${newId()}`);
     setMessages([]);
@@ -139,6 +167,7 @@ export function ChatPage() {
   async function handleSend(event: React.FormEvent) {
     event.preventDefault();
     const message = draft.trim();
+    const trimmedSystemPrompt = systemPrompt.trim();
     if (!selectedProvider || !message || submitting) return;
 
     setMessages((prev) => [...prev, { id: newId(), role: "user", content: message }]);
@@ -147,13 +176,17 @@ export function ChatPage() {
     setSubmitting(true);
 
     try {
+      const requestMessages = [
+        ...(trimmedSystemPrompt ? [{ role: "system" as const, content: trimmedSystemPrompt }] : []),
+        { role: "user" as const, content: message },
+      ];
+
       const envelope = await platformApi.sendChatMessage(selectedProvider.id, {
         provider_name: selectedProvider.provider,
         conversation_id: conversationId,
         session_id: "web-console",
         request_id: `req-${newId()}`,
-        system_prompt: systemPrompt.trim() || undefined,
-        message,
+        messages: requestMessages,
         model: modelOverride.trim() || undefined,
         temperature: temperature ? Number(temperature) : undefined,
       });
@@ -185,8 +218,12 @@ export function ChatPage() {
               aria-label="LLM provider"
               className="chat-provider-select"
               value={selectedProvider?.id ?? ""}
-              onChange={(e) => setSelectedProviderId(Number(e.target.value))}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setSelectedProviderId(raw ? Number(raw) : null);
+              }}
             >
+              <option value="">Select Provider</option>
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>{p.provider}</option>
               ))}
@@ -204,6 +241,33 @@ export function ChatPage() {
               {conversationId}
             </code>
           )}
+        </div>
+        <div className="chat-toolbar__center">
+          {selectedProvider ? (
+            <>
+              <select
+                aria-label="Model selection"
+                className="chat-provider-select"
+                value={modelOverride}
+                onChange={(e) => setModelOverride(e.target.value)}
+                disabled={modelsState.loading}
+                title="Select model"
+              >
+                <option value="">{modelsState.loading ? "Loading models..." : "Provider default"}</option>
+                {modelsState.models.map((model) => (
+                  <option key={`${model.provider_id}-${model.id}`} value={model.id}>
+                    {(model.display_name || model.id)} [{model.provider_id}:{model.provider}]
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : null}
+          <code
+            className="chat-conv-chip"
+            title={systemPrompt.trim() ? `System prompt: ${systemPrompt.trim()}` : "System prompt not set"}
+          >
+            {systemPrompt.trim() ? `System: ${systemPrompt.trim()}` : "System: not set"}
+          </code>
         </div>
         <div className="chat-toolbar__right">
           <button
@@ -223,25 +287,36 @@ export function ChatPage() {
         </div>
       </div>
 
+      <div className="chat-system-banner">
+        <label className="chat-system-banner__field">
+          <strong>System Prompt</strong>
+          <textarea
+            rows={2}
+            placeholder="Optional instructions sent before user message"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+          />
+        </label>
+      </div>
+
       {settingsOpen && (
         <div className="chat-settings">
-          <label className="chat-settings__field chat-settings__field--wide">
-            <span>System prompt</span>
-            <textarea
-              rows={2}
-              placeholder="Optional instructions sent at the start of every request"
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-            />
-          </label>
           <div className="chat-settings__row">
             <label className="chat-settings__field">
               <span>Model override</span>
-              <input
-                placeholder="e.g. llama3.1:8b"
+              <select
                 value={modelOverride}
                 onChange={(e) => setModelOverride(e.target.value)}
-              />
+                disabled={!selectedProvider || modelsState.loading}
+              >
+                <option value="">Provider default</option>
+                {modelsState.models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.display_name || model.id}
+                  </option>
+                ))}
+              </select>
+              {modelsState.error ? <small className="inline-feedback inline-feedback--error">{modelsState.error}</small> : null}
             </label>
             <label className="chat-settings__field">
               <span>Temperature</span>
@@ -299,7 +374,7 @@ export function ChatPage() {
               ? `Message ${selectedProvider.provider}... (Ctrl+Enter to send)`
               : "Select a provider first"
           }
-          rows={1}
+          rows={4}
           value={draft}
           onChange={(e) => {
             setScopedDraft(e.target.value);

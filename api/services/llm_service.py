@@ -7,11 +7,15 @@ from sqlalchemy.orm import Session
 from schemas.model import LlmProvider, LLMCredential
 from utils.secrets_manager import get_secrets_manager
 from utils.config import ALLOWED_LLM_PROVIDERS
+from utils.logger import get_logger, log_event, log_exception
 from schemas.llm_providers import (
     LLMProviderChatRequest as LlmProviderChatRequest,
     LLMProviderUpsert,
     LLM_PROVIDER_CREDENTIAL_TEMPLATES,
+    LLM_ModelsListResponse, LLM_Model
 )
+
+LOGGER = get_logger("api.services.llm_service")
 
 
 def _normalize_llm_provider(provider: str) -> str:
@@ -189,20 +193,77 @@ def _serialize_llm_provider(db_provider: LlmProvider) -> Dict[str, Any]:
 
 
 def _decrypt_provider_credentials(db_provider: LlmProvider) -> Dict[str, str]:
+    provider_id = db_provider.id
+    # Primary: read from child LLMCredential records (current storage model)
+    has_keys = bool(db_provider.credential and isinstance(db_provider.credential, list) and len(db_provider.credential) > 0)
+    if has_keys:
+        result: Dict[str, str] = {}
+        for cred in db_provider.credential:
+            if cred and cred.key_name:
+                try:
+                    decrypted_value = get_secrets_manager().decrypt(cred.encrypted_value)
+                    result[str(cred.key_name)] = decrypted_value or ""
+                except Exception:
+                    log_event(
+                        LOGGER,
+                        30,
+                        "llm.credentials.decrypt_failed",
+                        "Failed to decrypt provider credential",
+                        provider_id=provider_id,
+                        key_name=cred.key_name,
+                    )
+                    result[str(cred.key_name)] = ""
+        log_event(
+            LOGGER,
+            10,
+            "llm.credentials.loaded",
+            "Loaded provider credentials from child records",
+            provider_id=provider_id,
+            credential_count=len(result),
+            source="child_records",
+        )
+        return result
+
+    # Fallback: legacy encrypted_credentials field
     if not db_provider.encrypted_credentials or not str(db_provider.encrypted_credentials).strip():
+        log_event(
+            LOGGER,
+            10,
+            "llm.credentials.none",
+            "No credentials found for provider",
+            provider_id=provider_id,
+        )
         return {}
 
     try:
         decrypted = get_secrets_manager().decrypt(db_provider.encrypted_credentials)
         parsed = json.loads(decrypted) if decrypted else {}
         if isinstance(parsed, dict):
+            log_event(
+                LOGGER,
+                10,
+                "llm.credentials.loaded",
+                "Loaded provider credentials from legacy field",
+                provider_id=provider_id,
+                credential_count=len(parsed),
+                source="legacy_field",
+            )
             return {str(k): "" if v is None else str(v) for k, v in parsed.items()}
     except Exception:
+        log_event(
+            LOGGER,
+            30,
+            "llm.credentials.decrypt_failed",
+            "Failed to decrypt legacy provider credentials",
+            provider_id=provider_id,
+            source="legacy_field",
+        )
         return {}
     return {}
 
 
 def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None, timeout_seconds: int = 30) -> Dict[str, Any]:
+    log_event(LOGGER, 10, "llm.http.post.start", "Posting request to provider", url=url, timeout_seconds=timeout_seconds)
     data = json.dumps(payload).encode("utf-8")
     request_headers = {
         "Content-Type": "application/json",
@@ -215,14 +276,52 @@ def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, st
     try:
         with urllib_request.urlopen(req, timeout=timeout_seconds) as resp:
             body = resp.read().decode("utf-8")
+            log_event(LOGGER, 10, "llm.http.post.success", "Received provider response", url=url, status_code=200)
             return json.loads(body) if body else {}
     except urllib_error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else ""
         detail = body.strip() or f"Provider HTTP error: {exc.code}"
+        log_event(
+            LOGGER,
+            40,
+            "llm.http.post.failed",
+            "Provider HTTP error",
+            url=url,
+            status_code=exc.code,
+            detail=detail[:200],
+        )
         raise HTTPException(status_code=502, detail=f"Provider request failed ({exc.code}): {detail[:400]}")
     except urllib_error.URLError as exc:
+        log_event(LOGGER, 40, "llm.http.post.failed", "Provider connection failed", url=url, reason=str(exc.reason))
         raise HTTPException(status_code=502, detail=f"Provider connection failed: {exc.reason}")
     except Exception as exc:
+        log_exception(LOGGER, "llm.http.post.unhandled_error", "Unexpected provider POST error", url=url, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Provider request failed: {exc}")
+
+
+def _get_json(url: str, headers: Optional[Dict[str, str]] = None, timeout_seconds: int = 30) -> Dict[str, Any]:
+    log_event(LOGGER, 20, "llm.http.get.start", "Fetching provider resource", url=url, timeout_seconds=timeout_seconds)
+    request_headers = {"Accept": "application/json"}
+    if headers:
+        request_headers.update(headers)
+
+    req = urllib_request.Request(url=url, headers=request_headers, method="GET")
+    try:
+        with urllib_request.urlopen(req, timeout=timeout_seconds) as resp:
+            body = resp.read().decode("utf-8")
+            result = json.loads(body) if body else {}
+            log_event(LOGGER, 20, "llm.http.get.success", "Fetched provider resource", url=url, status_code=200)
+            return result
+    except urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else ""
+        detail = body.strip() or f"Provider HTTP error: {exc.code}"
+        log_event(LOGGER, 40, "llm.http.get.failed", "Provider HTTP error", url=url, status_code=exc.code, detail=detail[:200])
+        raise HTTPException(status_code=502, detail=f"Provider request failed ({exc.code}): {detail[:400]}")
+    except urllib_error.URLError as exc:
+        log_event(LOGGER, 40, "llm.http.get.failed", "Provider connection failed", url=url, reason=str(exc.reason))
+        raise HTTPException(status_code=502, detail=f"Provider connection failed: {exc.reason}")
+    except Exception as exc:
+        log_exception(LOGGER, "llm.http.get.unhandled_error", "Unexpected provider GET error", url=url, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Provider request failed: {exc}")
 
 
@@ -400,6 +499,17 @@ def _chat_openai_compatible(provider: LlmProvider, credentials: Dict[str, str], 
 def _chat_with_provider(provider: LlmProvider, chat_request: LlmProviderChatRequest) -> Dict[str, Any]:
     credentials = _decrypt_provider_credentials(provider)
     provider_type = provider.provider
+    log_event(
+        LOGGER,
+        20,
+        "llm.chat.dispatch",
+        "Dispatching chat request to provider handler",
+        provider_id=provider.id,
+        provider=provider.provider,
+        request_id=chat_request.request_id,
+        conversation_id=chat_request.conversation_id,
+        session_id=chat_request.session_id,
+    )
 
     if provider_type in {"local_ollama", "ollama_cloud"}:
         return _chat_with_ollama(provider, credentials, chat_request)
@@ -408,4 +518,91 @@ def _chat_with_provider(provider: LlmProvider, chat_request: LlmProviderChatRequ
     if provider_type in {"ibm_watson", "aws_bedrock"}:
         return _chat_openai_compatible(provider, credentials, chat_request)
 
+    log_event(
+        LOGGER,
+        40,
+        "llm.chat.unsupported_provider",
+        "Unsupported provider type",
+        provider_id=provider.id,
+        provider=provider.provider,
+    )
     raise HTTPException(status_code=400, detail=f"Unsupported provider type: {provider_type}")
+
+def get_provided_models(db: Session, provider_id: int) -> LLM_ModelsListResponse:
+    log_event(LOGGER, 20, "llm.models.fetch.start", "Fetching provider models", provider_id=provider_id)
+    provider = db.query(LlmProvider).filter(LlmProvider.id == provider_id).first()
+    if not provider:
+        log_event(LOGGER, 30, "llm.models.fetch.not_found", "Provider not found while fetching models", provider_id=provider_id)
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    base = provider.endpoint.rstrip("/") if provider.endpoint else ""
+    # Strip any trailing /v1 so we always build from the root base URL
+    if base.endswith("/v1"):
+        base = base[:-3]
+    provider_endpoint = f"{base}/v1/models" if base else ""
+    provider_credentials = _decrypt_provider_credentials(provider)
+
+    if not provider_endpoint:
+        log_event(LOGGER, 40, "llm.models.fetch.invalid_config", "Provider endpoint is not configured", provider_id=provider_id, provider=provider.provider)
+        raise HTTPException(status_code=400, detail="Provider endpoint is not configured")
+    if not provider_credentials.get("api_key"):
+        log_event(LOGGER, 40, "llm.models.fetch.invalid_config", "Provider api_key credential is missing", provider_id=provider_id, provider=provider.provider)
+        raise HTTPException(status_code=400, detail="Provider api_key credential is not configured")
+
+    provider_type = provider.provider
+    request_headers: Dict[str, str] = {"x-api-key": provider_credentials.get("api_key", "")}
+    if provider_type in {"anthropic", "claude"}:
+        request_headers["anthropic-version"] = "2023-06-01"
+
+    log_event(
+        LOGGER,
+        20,
+        "llm.models.fetch.upstream_call",
+        "Calling provider models endpoint",
+        provider_id=provider_id,
+        provider=provider.provider,
+        provider_type=provider_type,
+        model_endpoint=provider_endpoint,
+    )
+    try:
+        response_json = _get_json(provider_endpoint, headers=request_headers)
+    except HTTPException as exc:
+        log_event(
+            LOGGER,
+            40,
+            "llm.models.fetch.failed",
+            "Provider models fetch failed",
+            provider_id=provider_id,
+            provider=provider.provider,
+            status_code=exc.status_code,
+            detail=str(exc.detail),
+        )
+        raise
+
+    llm_models = []
+    for model in response_json.get("data", []):
+        if isinstance(model, dict) and model.get("id"):
+            model_obj = LLM_Model(
+                provider_id=provider_id,
+                provider=provider.provider,
+                model_endpoint=provider_endpoint,
+                id=str(model.get("id")),
+                display_name=model.get("display_name") or model.get("name") or model.get("id"),
+                created_at=model.get("created_at"),
+                type=model.get("type"),
+                capabilities=model.get("capabilities"),
+                max_input_tokens=model.get("max_input_tokens"),
+                max_tokens=model.get("max_tokens"),
+            )
+            llm_models.append(model_obj)
+
+    log_event(
+        LOGGER,
+        20,
+        "llm.models.fetch.completed",
+        "Fetched provider models successfully",
+        provider_id=provider_id,
+        provider=provider.provider,
+        model_count=len(llm_models),
+    )
+    return LLM_ModelsListResponse(models=llm_models)

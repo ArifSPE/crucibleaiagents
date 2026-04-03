@@ -8,6 +8,9 @@ from services.package_service import (
     _refresh_package_secret_metadata,
 )
 from utils.secrets_manager import get_secrets_manager
+from utils.logger import get_logger, log_event
+
+LOGGER = get_logger("api.services.secret_service")
 
 
 def serialize_secret(secret: PackageSecret) -> dict:
@@ -23,6 +26,7 @@ def serialize_secret(secret: PackageSecret) -> dict:
 def get_package_or_404(db: Any, package_id: int) -> AgentPackage:
     pkg = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
     if not pkg:
+        log_event(LOGGER, 30, "secret.package_not_found", "Package not found while handling secret", package_id=package_id)
         raise HTTPException(status_code=404, detail="Package not found")
     return pkg
 
@@ -33,15 +37,18 @@ def get_secret_or_404(db: Any, package_id: int, secret_id: int) -> PackageSecret
         PackageSecret.package_id == package_id,
     ).first()
     if not secret:
+        log_event(LOGGER, 30, "secret.not_found", "Secret not found", package_id=package_id, secret_id=secret_id)
         raise HTTPException(status_code=404, detail="Secret not found")
     return secret
 
 
 def list_secrets(db: Any, package_id: int) -> list[PackageSecret]:
     get_package_or_404(db, package_id)
-    return db.query(PackageSecret).filter(
+    secrets = db.query(PackageSecret).filter(
         PackageSecret.package_id == package_id
     ).order_by(PackageSecret.key_name).all()
+    log_event(LOGGER, 20, "secret.listed", "Listed package secrets", package_id=package_id, secret_count=len(secrets))
+    return secrets
 
 
 def _reconcile_package_secret_state(db: Any, package: AgentPackage) -> list[str]:
@@ -76,6 +83,7 @@ def _reconcile_package_secret_state(db: Any, package: AgentPackage) -> list[str]
 
 def create_or_update_secret(db: Any, package_id: int, key_name: str, value: str) -> tuple[PackageSecret, bool, list[str]]:
     pkg = get_package_or_404(db, package_id)
+    log_event(LOGGER, 20, "secret.create_or_update.start", "Creating or updating package secret", package_id=package_id, key_name=key_name)
 
     try:
         encrypted = get_secrets_manager().encrypt(value)
@@ -91,6 +99,16 @@ def create_or_update_secret(db: Any, package_id: int, key_name: str, value: str)
         missing_secret_keys = _reconcile_package_secret_state(db, pkg)
         db.commit()
         db.refresh(existing)
+        log_event(
+            LOGGER,
+            20,
+            "secret.updated",
+            "Updated package secret",
+            package_id=package_id,
+            secret_id=existing.id,
+            key_name=existing.key_name,
+            missing_secret_keys_count=len(missing_secret_keys),
+        )
         return existing, False, missing_secret_keys
 
     secret = PackageSecret(
@@ -103,6 +121,16 @@ def create_or_update_secret(db: Any, package_id: int, key_name: str, value: str)
     missing_secret_keys = _reconcile_package_secret_state(db, pkg)
     db.commit()
     db.refresh(secret)
+    log_event(
+        LOGGER,
+        20,
+        "secret.created",
+        "Created package secret",
+        package_id=package_id,
+        secret_id=secret.id,
+        key_name=secret.key_name,
+        missing_secret_keys_count=len(missing_secret_keys),
+    )
     return secret, True, missing_secret_keys
 
 
@@ -133,6 +161,16 @@ def update_secret(db: Any, package_id: int, secret_id: int, key_name: str, value
     missing_secret_keys = _reconcile_package_secret_state(db, pkg)
     db.commit()
     db.refresh(secret)
+    log_event(
+        LOGGER,
+        20,
+        "secret.updated",
+        "Updated package secret by id",
+        package_id=package_id,
+        secret_id=secret.id,
+        key_name=secret.key_name,
+        missing_secret_keys_count=len(missing_secret_keys),
+    )
     return secret, missing_secret_keys
 
 
@@ -144,4 +182,14 @@ def delete_secret(db: Any, package_id: int, secret_id: int) -> tuple[str, list[s
     pkg = get_package_or_404(db, package_id)
     missing_secret_keys = _reconcile_package_secret_state(db, pkg)
     db.commit()
+    log_event(
+        LOGGER,
+        20,
+        "secret.deleted",
+        "Deleted package secret",
+        package_id=package_id,
+        secret_id=secret_id,
+        key_name=key_name,
+        missing_secret_keys_count=len(missing_secret_keys),
+    )
     return key_name, missing_secret_keys

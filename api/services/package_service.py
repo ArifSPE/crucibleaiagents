@@ -8,8 +8,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from schemas.model import AgentPackage, PackageSecret, PackageSchedule
 from utils import config
+from utils.logger import get_logger, log_event
 from services.schedule_service import _calculate_next_run_time
 from services.run_service import _to_utc_iso
+
+LOGGER = get_logger("api.services.package_service")
 
 
 def _normalize_language(language: Optional[str]) -> str:
@@ -235,19 +238,51 @@ def serialize_package(pkg: AgentPackage) -> dict:
 
 
 def list_packages(db: Session) -> list[AgentPackage]:
-    return db.query(AgentPackage).all()
+    packages = db.query(AgentPackage).all()
+    log_event(
+        LOGGER,
+        20,
+        "package.listed",
+        "Listed packages",
+        package_count=len(packages),
+    )
+    return packages
 
 
 def get_package_or_404(db: Session, package_id: int) -> AgentPackage:
     pkg = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
     if not pkg:
+        log_event(
+            LOGGER,
+            30,
+            "package.not_found",
+            "Package not found",
+            package_id=package_id,
+        )
         raise HTTPException(status_code=404, detail="Package not found")
+    log_event(
+        LOGGER,
+        10,
+        "package.retrieved",
+        "Retrieved package",
+        package_id=pkg.id,
+        package_name=pkg.name,
+    )
     return pkg
 
 
 def register_package(db: Session, payload: Any) -> tuple[AgentPackage, bool, str, int, list[str], bool]:
     package_name = (payload.name or "").strip()
     package_version = (payload.version or "").strip()
+
+    log_event(
+        LOGGER,
+        20,
+        "package.register.start",
+        "Registering package metadata",
+        package_name=package_name,
+        package_version=package_version,
+    )
 
     if not package_name:
         raise HTTPException(status_code=400, detail="Package name is required")
@@ -382,6 +417,19 @@ def register_package(db: Session, payload: Any) -> tuple[AgentPackage, bool, str
             )
 
     db.commit()
+    log_event(
+        LOGGER,
+        20,
+        "package.register.completed",
+        "Registered package metadata",
+        package_id=package.id,
+        package_name=package.name,
+        created=created,
+        package_action=package_action,
+        provisioned_secret_keys=provisioned_secret_keys,
+        missing_secret_keys_count=len(missing_required_secret_keys),
+        effective_schedule_enabled=effective_schedule_enabled,
+    )
     return (
         package,
         created,

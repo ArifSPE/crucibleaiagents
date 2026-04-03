@@ -81,7 +81,7 @@ services:
     depends_on:
       api:
         condition: service_started
-    command: /bin/sh -lc "mkdir -p /workspace/logs && cd /workspace/frontend && npm install && npm run dev -- --host 0.0.0.0 --port 5173 >> /workspace/logs/frontend.log 2>&1"
+    command: /bin/sh -lc "mkdir -p /workspace/logs && cd /workspace/frontend && npm install && npm run build && npx --yes serve -s dist -l 5173 >> /workspace/logs/frontend.log 2>&1"
     ports:
       - "5173:5173"
 

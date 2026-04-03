@@ -3,7 +3,7 @@ import { EmptyState } from "../components/EmptyState";
 import { SectionCard } from "../components/SectionCard";
 import { usePolling } from "../hooks/usePolling";
 import { platformApi } from "../services/platformApi";
-import type { LlmProviderUpsertRequest } from "../types/api";
+import type { LlmProvider, LlmProviderUpsertRequest } from "../types/api";
 
 const SUPPORTED_PROVIDER_OPTIONS = [
   "local_ollama",
@@ -54,6 +54,43 @@ export function ProvidersPage() {
   const [credentialsText, setCredentialsText] = useState("{}");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<LlmProvider | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  function startEdit(provider: LlmProvider) {
+    setEditingProvider(provider);
+    setProviderForm({
+      provider_name: provider.provider,
+      description: provider.description ?? "",
+      endpoint: provider.endpoint ?? "",
+      credentials: {},
+    });
+    setCredentialsText("{}");
+    setFeedback(null);
+  }
+
+  function cancelEdit() {
+    setEditingProvider(null);
+    setProviderForm(defaultProviderForm);
+    setCredentialsText("{}");
+    setFeedback(null);
+  }
+
+  async function handleDelete(provider: LlmProvider) {
+    if (!window.confirm(`Delete provider "${provider.provider}"? This cannot be undone.`)) return;
+    setDeletingId(provider.id);
+    setFeedback(null);
+    try {
+      await platformApi.deleteProvider(provider.id);
+      await providersState.refresh();
+      setFeedback(`Provider "${provider.provider}" deleted.`);
+      if (editingProvider?.id === provider.id) cancelEdit();
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Failed to delete provider.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,18 +105,26 @@ export function ProvidersPage() {
 
       const parsedCredentials = credentialsText.trim() ? (JSON.parse(credentialsText) as unknown) : undefined;
       const credentials = sanitizeCredentials(parsedCredentials);
-      await platformApi.createProvider({
+      const payload: LlmProviderUpsertRequest = {
         provider_name: normalizedProviderName,
         description: providerForm.description?.trim() || undefined,
         endpoint: providerForm.endpoint?.trim() || undefined,
         credentials,
-      });
+      };
+
+      if (editingProvider) {
+        await platformApi.updateProvider(editingProvider.id, payload);
+        setFeedback("Provider updated successfully.");
+        cancelEdit();
+      } else {
+        await platformApi.createProvider(payload);
+        setProviderForm(defaultProviderForm);
+        setCredentialsText("{}");
+        setFeedback("Provider created successfully.");
+      }
       await providersState.refresh();
-      setProviderForm(defaultProviderForm);
-      setCredentialsText("{}");
-      setFeedback("Provider created successfully.");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Failed to create provider.");
+      setFeedback(error instanceof Error ? error.message : `Failed to ${editingProvider ? "update" : "create"} provider.`);
     } finally {
       setSaving(false);
     }
@@ -97,8 +142,29 @@ export function ProvidersPage() {
                 <div>
                   <strong>{provider.provider}</strong>
                   <p>{provider.description || "No description"}</p>
+                  {provider.credential_keys?.length ? (
+                    <p className="provider-list__credentials">Keys: {provider.credential_keys.join(", ")}</p>
+                  ) : null}
                 </div>
-                <span>{provider.endpoint || "No endpoint"}</span>
+                <div className="provider-list__meta">
+                  <span>{provider.endpoint || "No endpoint"}</span>
+                  <div className="provider-list__actions">
+                    <button
+                      className="button button--small button--secondary"
+                      onClick={() => startEdit(provider)}
+                      disabled={deletingId === provider.id}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="button button--small button--danger"
+                      onClick={() => handleDelete(provider)}
+                      disabled={deletingId === provider.id}
+                    >
+                      {deletingId === provider.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
               </li>
             ))}
           </ul>
@@ -107,7 +173,10 @@ export function ProvidersPage() {
         ) : null}
       </SectionCard>
 
-      <SectionCard title="Add provider" subtitle="Credentials are encrypted server-side before storage">
+      <SectionCard
+        title={editingProvider ? `Edit provider: ${editingProvider.provider}` : "Add provider"}
+        subtitle="Credentials are encrypted server-side before storage"
+      >
         <form className="form-grid" onSubmit={handleSubmit}>
           <label>
             <span>Provider name</span>
@@ -115,6 +184,7 @@ export function ProvidersPage() {
               value={providerForm.provider_name}
               onChange={(event) => setProviderForm((prev) => ({ ...prev, provider_name: event.target.value }))}
               required
+              disabled={!!editingProvider}
             >
               {SUPPORTED_PROVIDER_OPTIONS.map((providerName) => (
                 <option key={providerName} value={providerName}>
@@ -132,13 +202,18 @@ export function ProvidersPage() {
             <textarea value={providerForm.description || ""} onChange={(event) => setProviderForm((prev) => ({ ...prev, description: event.target.value }))} rows={3} />
           </label>
           <label className="form-grid__wide">
-            <span>Credentials JSON</span>
+            <span>Credentials JSON{editingProvider ? " (leave {} to keep existing)" : ""}</span>
             <textarea rows={8} value={credentialsText} onChange={(event) => setCredentialsText(event.target.value)} />
           </label>
           <div className="form-actions form-grid__wide">
             <button className="button button--primary" disabled={saving} type="submit">
-              {saving ? "Saving..." : "Create provider"}
+              {saving ? "Saving..." : editingProvider ? "Update provider" : "Create provider"}
             </button>
+            {editingProvider ? (
+              <button type="button" className="button button--secondary" onClick={cancelEdit} disabled={saving}>
+                Cancel
+              </button>
+            ) : null}
           </div>
         </form>
         {feedback ? <p className="inline-feedback">{feedback}</p> : null}
