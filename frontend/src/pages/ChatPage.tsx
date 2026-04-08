@@ -3,12 +3,13 @@ import { Link } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { usePolling } from "../hooks/usePolling";
 import { platformApi } from "../services/platformApi";
-import type { LlmModel, LlmProvider } from "../types/api";
+import type { ChatMcpToolUsage, LlmModel, LlmProvider } from "../types/api";
 
 interface LocalMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  mcpTools?: ChatMcpToolUsage;
 }
 
 const CHAT_DRAFTS_STORAGE_KEY = "chat.draftsByScope.v1";
@@ -23,6 +24,14 @@ function newId(): string {
 function isUserFacingError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "Unexpected error. Please try again.";
+}
+
+function prettyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch {
+    return "{}";
+  }
 }
 
 function loadDraftsFromStorage(): Record<string, string> {
@@ -72,6 +81,7 @@ export function ChatPage() {
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const [modelOverride, setModelOverride] = useState<string>("");
   const [temperature, setTemperature] = useState<string>("0.7");
+  const [mcpToolsEnabled, setMcpToolsEnabled] = useState<boolean>(false);
   const [modelsState, setModelsState] = useState<{ loading: boolean; error: string | null; models: LlmModel[] }>({
     loading: false,
     error: null,
@@ -157,6 +167,16 @@ export function ChatPage() {
     };
   }, [selectedProvider?.id]);
 
+  useEffect(() => {
+    if (selectedProviderId !== null) {
+      return;
+    }
+    if (!providers.length) {
+      return;
+    }
+    setSelectedProviderId(providers[0].id);
+  }, [providers, selectedProviderId]);
+
   function handleNewChat() {
     setConversationId(`conv-${newId()}`);
     setMessages([]);
@@ -189,11 +209,22 @@ export function ChatPage() {
         messages: requestMessages,
         model: modelOverride.trim() || undefined,
         temperature: temperature ? Number(temperature) : undefined,
+        metadata: {
+          enable_mcp_tools: mcpToolsEnabled,
+        },
       });
 
       const reply = envelope.response?.reply ?? "";
       if (reply) {
-        setMessages((prev) => [...prev, { id: newId(), role: "assistant", content: reply }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: newId(),
+            role: "assistant",
+            content: reply,
+            mcpTools: envelope.response?.mcp_tools,
+          },
+        ]);
       }
     } catch (error) {
       setSendError(isUserFacingError(error));
@@ -271,6 +302,15 @@ export function ChatPage() {
         </div>
         <div className="chat-toolbar__right">
           <button
+            className={`button button--small ${mcpToolsEnabled ? "button--active" : "button--ghost"}`}
+            onClick={() => setMcpToolsEnabled((v) => !v)}
+            type="button"
+            title="Toggle MCP-backed tool orchestration for chat responses"
+            aria-pressed={mcpToolsEnabled}
+          >
+            {mcpToolsEnabled ? "MCP: On" : "MCP: Off"}
+          </button>
+          <button
             className={`button button--ghost button--small${settingsOpen ? " button--active" : ""}`}
             onClick={() => setSettingsOpen((v) => !v)}
             type="button"
@@ -296,6 +336,9 @@ export function ChatPage() {
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
           />
+          <small className="chat-system-banner__meta">
+            MCP-backed tools are currently <strong>{mcpToolsEnabled ? "enabled" : "disabled"}</strong> for this chat.
+          </small>
         </label>
       </div>
 
@@ -327,6 +370,17 @@ export function ChatPage() {
                 onChange={(e) => setTemperature(e.target.value)}
               />
             </label>
+            <label className="chat-settings__field chat-settings__field--toggle">
+              <span>MCP tools</span>
+              <label className="chat-toggle">
+                <input
+                  type="checkbox"
+                  checked={mcpToolsEnabled}
+                  onChange={(e) => setMcpToolsEnabled(e.target.checked)}
+                />
+                <span>Allow MCP-assisted tool use during chat</span>
+              </label>
+            </label>
           </div>
         </div>
       )}
@@ -345,6 +399,44 @@ export function ChatPage() {
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-bubble chat-bubble--${msg.role}`}>
             <p>{msg.content}</p>
+            {msg.role === "assistant" && msg.mcpTools?.enabled ? (
+              <div className="chat-mcp-meta">
+                <strong>MCP tools:</strong> {msg.mcpTools.used_tool_count} used
+                {msg.mcpTools.executed_tools.length ? (
+                  <span> ({msg.mcpTools.executed_tools.map((tool) => tool.name).join(", ")})</span>
+                ) : (
+                  <span> (none)</span>
+                )}
+
+                <details className="chat-mcp-details">
+                  <summary>View MCP execution details</summary>
+                  {msg.mcpTools.planning_reason ? (
+                    <p className="chat-mcp-details__reason">
+                      <strong>Planner reason:</strong> {msg.mcpTools.planning_reason}
+                    </p>
+                  ) : null}
+                  {msg.mcpTools.executed_tools.length ? (
+                    <div className="chat-mcp-details__list">
+                      {msg.mcpTools.executed_tools.map((tool, index) => (
+                        <article key={`${msg.id}-${tool.name}-${index}`} className="chat-mcp-tool-card">
+                          <header>
+                            <strong>{tool.name}</strong>
+                            <span>{tool.is_error ? "error" : "ok"}</span>
+                          </header>
+                          <pre className="code-block">{prettyJson(tool.arguments || {})}</pre>
+                          {tool.error ? <p className="inline-feedback inline-feedback--error">{tool.error}</p> : null}
+                          {tool.content !== undefined ? (
+                            <pre className="code-block">{prettyJson(tool.content)}</pre>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="chat-mcp-details__empty">No tools executed for this response.</p>
+                  )}
+                </details>
+              </div>
+            ) : null}
           </div>
         ))}
         {submitting && (

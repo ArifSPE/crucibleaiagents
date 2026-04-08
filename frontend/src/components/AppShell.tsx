@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { to: "/chat-memory", label: "Chat Memory", iconPath: "M12 8v4l3 3 M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z" },
   { to: "/packages", label: "Packages", iconPath: "M4 7.5 12 3l8 4.5-8 4.5z M4 7.5v9L12 21v-9 M20 7.5v9L12 21" },
   { to: "/watcher", label: "Watcher", iconPath: "M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" },
+  { to: "/mcp-server", label: "MCP Server", iconPath: "M4 6h16v12H4z M8 10h8 M8 14h5 M2 9l2 3-2 3 M22 9l-2 3 2 3" },
   { to: "/daemons", label: "Daemons", iconPath: "M4 6h10l6 6v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M14 6v6h6" },
   { to: "/audit", label: "Audit", iconPath: "M12 3v4 M7 5l3 2 M17 5l-3 2 M5 10h14 M7 21h10 M9 10v7 M15 10v7" },
   { to: "/providers", label: "LLM Providers", iconPath: "M4 7h16 M4 12h16 M4 17h10 M17 17h3 M14 14l3 3-3 3" },

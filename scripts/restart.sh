@@ -45,6 +45,7 @@ Restart platform services.
 SERVICES:
     all              Restart all services (default)
     db               PostgreSQL database
+    mcp_server       MCP server container
     api              FastAPI server
     watcher          Package watcher
     worker_container Container worker (includes daemon monitor)

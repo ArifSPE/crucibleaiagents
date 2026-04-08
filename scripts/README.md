@@ -25,7 +25,7 @@ chmod +x scripts/*.sh
 
 ### 🚀 `manage.sh` - Interactive Platform Management Hub
 
-Central command for all platform operations with interactive and CLI modes.
+Central command for all platform operations in interactive menu mode.
 
 **Interactive Mode:**
 ```bash
@@ -36,20 +36,13 @@ Provides menu-driven interface for:
 - Start/stop/restart platform
 - View logs and daemon monitor events
 - Check status
+- Check MCP tool list via API (/mcp/tools)
 - Start local worker
 - **Manage local watcher** (start/stop/restart/logs)
 - Shell operations (rebuild, cleanup, etc.)
 
-**CLI Mode:**
-```bash
-./scripts/manage.sh start --daemon
-./scripts/manage.sh status --all
-./scripts/manage.sh logs api
-./scripts/manage.sh logs local_watcher
-./scripts/manage.sh watcher start          # Start local watcher
-./scripts/manage.sh watcher logs -f        # Follow local watcher logs
-./scripts/manage.sh restart worker_container
-```
+`manage.sh` now always opens the interactive menu. Use the menu options for
+start/stop/restart/status/logs/MCP checks and watcher management.
 
 ---
 
@@ -224,8 +217,9 @@ Starts all platform services in correct dependency order with health checks.
 2. ✅ Loads `.env` environment variables
 3. ✅ Starts `docker-proxy` (security layer)
 4. ✅ Starts database with health checks
-5. ✅ Starts API with health checks
-6. ✅ Starts watcher, worker, and other services
+5. ✅ Starts MCP server with health checks
+6. ✅ Starts API with health checks
+7. ✅ Starts watcher, worker, and other services
 7. ✅ **Optionally** starts local watcher if `--local-watcher` flag used
 8. ✅ **Optionally** starts local worker if `--local-worker` flag used
 9. ✅ Verifies all services are running

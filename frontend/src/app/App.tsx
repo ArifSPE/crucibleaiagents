@@ -7,6 +7,7 @@ import { DaemonsPage } from "../pages/DaemonsPage";
 import { ProvidersPage } from "../pages/ProvidersPage";
 import { WatcherPage } from "../pages/WatcherPage";
 import { ChatPage } from "../pages/ChatPage";
+import { McpServerPage } from "../pages/McpServerPage";
 
 const PackagesPage = lazy(async () => {
   const module = await import("../pages/PackagesPage");
@@ -41,6 +42,7 @@ export function App() {
           )}
         />
         <Route path="/watcher" element={<WatcherPage />} />
+        <Route path="/mcp-server" element={<McpServerPage />} />
         <Route path="/daemons" element={<DaemonsPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/providers" element={<ProvidersPage />} />

@@ -16,16 +16,17 @@ A production-ready platform for deploying, managing, and executing AI agents and
 - **Observability**: Comprehensive logging, audit trails, and health monitoring
 - **Scalability**: Threaded worker pools, scheduler integration, and async I/O
 - **REST API**: Full-featured API for agent management and run orchestration
+- **MCP Integration**: Dedicated FastMCP server container with HTTP tool invocation from API
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      FastAPI REST API                        │
-│         (Agent Mgmt, Run Orchestration, Secrets)             │
+│ (Agent Mgmt, Run Orchestration, Secrets, MCP HTTP Client)   │
 └──────┬──────────────────────────────────────────────┬────────┘
-       │                                              │
-       │                                              │
+  │                                              │
+  │                                              │
     ┌──┴──────────┐    ┌──────────────┐    ┌────────┴──────┐
     │  Scheduler  │    │   Watcher    │    │  Secrets Mgr  │
     │ (cron-based)│    │ (filesystem) │    │ (encryption)  │
@@ -46,6 +47,19 @@ A production-ready platform for deploying, managing, and executing AI agents and
     │  └─────────────────┴─────────────────┘       │
     └──────┬─────────────────────────────────────────┘
            │
+       ┌───────▼───────────────┐
+       │   MCP Server          │
+       │ (FastMCP over HTTP)   │
+       └───────┬───────────────┘
+          │
+          ▼
+        ┌───────────────┐
+        │ MCP Tools     │
+        │ LangGraph/LC  │
+        └───────────────┘
+
+  
+           
   ┌────────┴─────────────────┬──────────────┐
   │                           │              │
   ▼                           ▼              ▼
@@ -90,6 +104,87 @@ curl http://localhost:8080/health
 # Run API tests
 ./scripts/run_tests.sh --api -q
 ```
+
+### MCP Server Integration
+
+The platform includes a dedicated `mcp_server` service (FastMCP) running in a
+separate container. The API acts as an MCP HTTP client and forwards tool calls
+to the MCP endpoint.
+
+Dependency note:
+
+- The MCP container installs dependencies from `mcp_server/requirements.txt`.
+- This is intentionally isolated from the root `requirements.txt` to avoid
+  version conflicts between API pins and FastMCP/httpx/fastapi requirements.
+- MCP dependencies are prebuilt into the `mcp_server` image (via `mcp_server/Dockerfile`),
+  so service restarts do not re-install packages each time.
+- If needed, tune startup wait with `MCP_HEALTH_TIMEOUT_SECONDS` (default 240) when
+  starting with `./scripts/start.sh`.
+
+Default MCP configuration:
+
+- `MCP_SERVER_URL=http://mcp_server:9001/mcp`
+- `MCP_CLIENT_TIMEOUT_SECONDS=20`
+- `MCP_SERVER_PATH=/mcp`
+- `MCP_ENABLED_TOOLS=` (comma-separated allowlist)
+- `MCP_DISABLED_TOOLS=` (comma-separated denylist)
+- `MCP_ALLOWED_WEB_HOSTS=` (comma-separated host allowlist for `web_service_call`)
+- `MCP_WEB_REQUEST_TIMEOUT_SECONDS=10`
+- `TAVILY_API_KEY=` (required for `tavily_search`)
+
+API endpoints:
+
+- `GET /mcp/health`: verify API-to-MCP connectivity
+- `GET /mcp/tools`: list tools exposed by MCP server
+- `POST /mcp/tools/{tool_name}/invoke`: invoke a tool over HTTP
+
+Example calls:
+
+```bash
+# List tools registered by the MCP server
+curl http://localhost:8080/mcp/tools
+
+# Invoke ping tool
+curl -X POST http://localhost:8080/mcp/tools/ping/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"arguments": {"message": "hello"}}'
+
+# Add numbers
+curl -X POST http://localhost:8080/mcp/tools/add/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"arguments": {"a": 10, "b": 5}}'
+
+# Substract numbers (tool name intentionally matches this spelling)
+curl -X POST http://localhost:8080/mcp/tools/substract/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"arguments": {"a": 10, "b": 5}}'
+
+# Tavily search (requires TAVILY_API_KEY)
+curl -X POST http://localhost:8080/mcp/tools/tavily_search/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"arguments": {"query": "latest model context protocol updates", "max_results": 3}}'
+
+# Safe web service GET call (host must be in MCP_ALLOWED_WEB_HOSTS when configured)
+curl -X POST http://localhost:8080/mcp/tools/web_service_call/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"arguments": {"url": "https://example.com"}}'
+```
+
+#### Registering New MCP Tools
+
+MCP tools are plugin-based and auto-discovered from `mcp_server/tools/**`.
+
+1. Add a new module under `mcp_server/tools/` (for example: `mcp_server/tools/core/my_tool.py`).
+2. Export one or more `MCPToolSpec` entries via a module-level `TOOL_SPECS` list.
+3. Implement each tool's `register(mcp: FastMCP)` callback and decorate functions with `@mcp.tool`.
+4. Restart `mcp_server`; discovery and registration happen automatically at startup.
+
+Registration policy:
+
+- `MCP_ENABLED_TOOLS`: if set, only listed tools are registered.
+- `MCP_DISABLED_TOOLS`: listed tools are always skipped.
+
+This model keeps server bootstrap stable while allowing safe, incremental tool additions.
 
 ### Deploy Your First Agent
 

@@ -244,6 +244,37 @@ while [ $attempt -lt $max_attempts ]; do
 done
 echo
 
+# Start MCP server
+log_info "  → Starting MCP server..."
+docker-compose up -d mcp_server
+
+# Wait for MCP server health status
+log_info "  → Waiting for MCP server health check..."
+max_attempts=${MCP_HEALTH_TIMEOUT_SECONDS:-240}
+attempt=0
+while [ $attempt -lt $max_attempts ]; do
+    mcp_container_id=$(docker-compose ps -q mcp_server 2>/dev/null | head -n 1)
+    mcp_health=""
+    if [ -n "$mcp_container_id" ]; then
+        mcp_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$mcp_container_id" 2>/dev/null || echo "")
+    fi
+
+    if [ "$mcp_health" = "healthy" ]; then
+        log_success "MCP server is healthy"
+        break
+    fi
+
+    attempt=$((attempt + 1))
+    if [ $attempt -eq $max_attempts ]; then
+        log_error "MCP server failed to start within timeout"
+        docker-compose logs mcp_server
+        exit 1
+    fi
+    echo -n "."
+    sleep 1
+done
+echo
+
 # Start API
 log_info "  → Starting API service..."
 docker-compose up -d api
@@ -251,9 +282,21 @@ sleep 5
 
 # Wait for API to be healthy
 log_info "  → Waiting for API health check..."
-max_attempts=${API_HEALTH_TIMEOUT_SECONDS:-180}
+max_attempts=${API_HEALTH_TIMEOUT_SECONDS:-420}
 attempt=0
 while [ $attempt -lt $max_attempts ]; do
+    api_container_id=$(docker-compose ps -q api 2>/dev/null | head -n 1)
+    api_state=""
+    if [ -n "$api_container_id" ]; then
+        api_state=$(docker inspect --format '{{.State.Status}}' "$api_container_id" 2>/dev/null || echo "")
+    fi
+
+    if [ "$api_state" = "exited" ] || [ "$api_state" = "dead" ]; then
+        log_error "API container stopped before becoming healthy"
+        docker-compose logs --tail=120 api
+        exit 1
+    fi
+
     if curl -sf http://localhost:8080/health &>/dev/null; then
         log_success "API is healthy"
         break
@@ -335,6 +378,7 @@ echo
 cat << EOF
 ${BLUE}Platform Services:${NC}
   API:               http://localhost:8080
+    MCP Server:        http://localhost:${MCP_SERVER_PORT:-9001}${MCP_SERVER_PATH:-/mcp}
     Frontend:          http://localhost:5173
   Database:          postgres://localhost:5432
 

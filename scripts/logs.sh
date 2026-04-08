@@ -48,6 +48,7 @@ SERVICES:
     watcher          Watcher log file
     worker_container Worker log file
     worker           Alias for worker_container
+    mcp_server       MCP server log file
     runner           Runner log file
     frontend         Frontend log file
     local_worker     Local worker host process log file
@@ -154,6 +155,9 @@ get_log_file_for_service() {
         worker|worker_container)
             echo "$LOG_DIR/worker.log"
             ;;
+        mcp_server)
+            echo "$LOG_DIR/mcp_server.log"
+            ;;
         runner)
             echo "$LOG_DIR/runner.log"
             ;;
@@ -197,6 +201,7 @@ tail_all_files() {
         "$LOG_DIR/api.log"
         "$LOG_DIR/watcher.log"
         "$LOG_DIR/worker.log"
+        "$LOG_DIR/mcp_server.log"
         "$LOG_DIR/runner.log"
         "$LOG_DIR/frontend.log"
         "$LOG_DIR/local_worker.log"

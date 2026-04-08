@@ -144,6 +144,28 @@ export interface ChatProviderResponse {
   endpoint?: string;
   model?: string;
   reply: string;
+  mcp_tools?: ChatMcpToolUsage;
+}
+
+export interface ChatMcpExecutedTool {
+  name: string;
+  arguments?: Record<string, unknown>;
+  is_error?: boolean;
+  error?: string;
+  content?: unknown;
+}
+
+export interface ChatMcpPlannedTool {
+  name: string;
+  arguments?: Record<string, unknown>;
+}
+
+export interface ChatMcpToolUsage {
+  enabled: boolean;
+  planned_tools: ChatMcpPlannedTool[];
+  executed_tools: ChatMcpExecutedTool[];
+  planning_reason?: string;
+  used_tool_count: number;
 }
 
 export interface ChatResponseEnvelope {
@@ -241,4 +263,21 @@ export interface LlmProviderUpsertRequest {
 
 export interface CreatedEntity {
   id: number;
+}
+
+export interface McpHealthResponse {
+  status: string;
+  server_url: string;
+  tool_count: number;
+}
+
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface McpToolsListResponse {
+  server_url: string;
+  tools: McpToolInfo[];
 }

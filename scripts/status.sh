@@ -174,7 +174,7 @@ get_compose_service_status() {
 }
 
 # Check each service
-for service in docker-proxy db api watcher worker_container; do
+for service in docker-proxy db mcp_server api watcher frontend worker_container; do
     status=$(get_compose_service_status "$service")
     log_status "$service" "$status"
 done
@@ -215,8 +215,9 @@ echo
 # Port Status
 echo -e "${CYAN}Service Ports:${NC}"
 log_info "API:         http://localhost:8080"
+log_info "MCP Server:  http://localhost:${MCP_SERVER_PORT:-9001}${MCP_SERVER_PATH:-/mcp}"
 log_info "Database:    postgres://localhost:5432"
-log_info "Frontend:    http://localhost:3000 (if enabled)"
+log_info "Frontend:    http://localhost:5173 (if enabled)"
 echo
 
 # Detailed info if requested
@@ -248,6 +249,18 @@ if [ "$CHECK_API" = true ]; then
     echo
 fi
 
+# MCP Health Check (piggybacked with --check-api to keep flags simple)
+if [ "$CHECK_API" = true ]; then
+    echo -e "${CYAN}MCP Server Health Check:${NC}"
+    if docker-compose exec -T mcp_server python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:${MCP_SERVER_PORT:-9001}/health', timeout=2); sys.exit(0)" &>/dev/null; then
+        log_success "MCP server is responding"
+    else
+        log_error "MCP server is not responding"
+        log_info "Try checking logs: ./scripts/logs.sh mcp_server"
+    fi
+    echo
+fi
+
 # Database Connection Check
 if [ "$CHECK_DB" = true ]; then
     echo -e "${CYAN}Database Connection Check:${NC}"
@@ -270,8 +283,8 @@ fi
 
 # Summary
 echo -e "${CYAN}Summary:${NC}"
-running_count=$(docker-compose ps --filter "status=running" --services 2>/dev/null | wc -l || echo 0)
-total_count=$(docker-compose config --services 2>/dev/null | wc -l || echo 0)
+running_count=$(docker-compose ps --filter "status=running" --services 2>/dev/null | awk 'NF {count++} END {print count+0}')
+total_count=$(docker-compose config --services 2>/dev/null | awk 'NF {count++} END {print count+0}')
 
 if [ "$running_count" -eq "$total_count" ] && [ "$total_count" -gt 0 ]; then
     log_success "All services are running ($running_count/$total_count)"

@@ -11,6 +11,8 @@ import type {
   LlmModelsListResponse,
   LlmProvider,
   LlmProviderUpsertRequest,
+  McpHealthResponse,
+  McpToolsListResponse,
   PackageRegisterRequest,
   PackageSchedule,
   PackageSecret,
@@ -23,6 +25,8 @@ import type {
 
 export const platformApi = {
   health: () => apiFetch<HealthResponse>("/health"),
+  mcpHealth: () => apiFetch<McpHealthResponse>("/mcp/health"),
+  listMcpTools: () => apiFetch<McpToolsListResponse>("/mcp/tools"),
   listPackages: () => apiFetch<AgentPackage[]>("/packages"),
   listPackage: (packageId: number) => apiFetch<AgentPackage>(`/packages/${packageId}`),
   getPackage: (packageId: number) => apiFetch<AgentPackage>(`/packages/${packageId}`),
