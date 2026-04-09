@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import httpx
 from fastmcp import FastMCP
 
+from mcp_server.secret_resolver import resolve_tool_secret
 from mcp_server.tool_registry import MCPToolSpec
 
 
@@ -45,7 +46,7 @@ def _register_tavily_search_tool(mcp: FastMCP) -> None:
     @mcp.tool
     def tavily_search(query: str, max_results: int = 5) -> dict[str, Any]:
         """Search the web using Tavily API."""
-        api_key = (os.getenv("TAVILY_API_KEY", "") or "").strip()
+        api_key = resolve_tool_secret("tavily_search", "TAVILY_API_KEY") or (os.getenv("TAVILY_API_KEY", "") or "").strip()
         if not api_key:
             return {
                 "status": "error",

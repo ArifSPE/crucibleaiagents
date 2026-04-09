@@ -58,6 +58,7 @@ show_menu() {
     echo "  10) Force restart service"
     echo "  11) Rebuild and restart"
     echo "  12) Open shell menu"
+    echo "  13) Sync MCP tools to registry"
     echo
     echo "  0) Exit"
     echo
@@ -170,6 +171,51 @@ check_mcp_tool_list() {
         fi
     else
         log_success "MCP connectivity confirmed via API"
+        echo "$response"
+    fi
+}
+
+sync_mcp_registry_tools() {
+    local api_base_url="${API_BASE_URL:-http://localhost:8080}"
+    local normalized_base="${api_base_url%/}"
+    local health_url="${normalized_base}/health"
+    local sync_url="${normalized_base}/mcp/registry/tools/sync"
+    local timeout_seconds="${MCP_TOOL_LIST_TIMEOUT_SECONDS:-15}"
+
+    if ! command -v curl &>/dev/null; then
+        log_error "curl is required to sync MCP registry tools"
+        return 1
+    fi
+
+    log_info "Checking API health at $health_url"
+    if ! curl -sf --max-time "$timeout_seconds" "$health_url" >/dev/null; then
+        log_error "API health check failed at $health_url"
+        return 1
+    fi
+
+    log_info "Syncing MCP tools into registry via $sync_url"
+    local response
+    if ! response=$(curl -sS --max-time "$timeout_seconds" -X POST "$sync_url"); then
+        log_error "Failed to sync MCP tools into registry"
+        return 1
+    fi
+
+    if command -v jq &>/dev/null; then
+        local registered_count
+        local skipped_count
+        registered_count=$(echo "$response" | jq -r '.registered_count // ""' 2>/dev/null || echo "")
+        skipped_count=$(echo "$response" | jq -r '.skipped_count // ""' 2>/dev/null || echo "")
+
+        if [[ "$registered_count" =~ ^[0-9]+$ ]] && [[ "$skipped_count" =~ ^[0-9]+$ ]]; then
+            log_success "MCP registry sync completed (registered=$registered_count, skipped=$skipped_count)"
+            echo "$response" | jq -r '.registered_tools[]?' | sed 's/^/  + /'
+            echo "$response" | jq -r '.skipped_tools[]?' | sed 's/^/  - /'
+        else
+            log_warn "Received unexpected MCP registry sync payload"
+            echo "$response" | jq '.' 2>/dev/null || echo "$response"
+        fi
+    else
+        log_success "MCP registry sync completed"
         echo "$response"
     fi
 }
@@ -355,6 +401,9 @@ main() {
                     esac
                     read -p "Press Enter to continue..."
                 done
+                ;;
+            13)
+                sync_mcp_registry_tools
                 ;;
             0)
                 log_success "Goodbye!"

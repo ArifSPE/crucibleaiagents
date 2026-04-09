@@ -206,7 +206,7 @@ def chat_with_provider(llm_provider_id: int, body: LLMProviderChatRequest):
 
         user_message = request_body.latest_user_message()
         try:
-            chat_response = chat_tool_service.chat_with_optional_mcp_tools(provider, request_body)
+            chat_response = chat_tool_service.chat_with_optional_mcp_tools(provider, request_body, db)
 
             assistant_reply = ""
             if isinstance(chat_response, dict):

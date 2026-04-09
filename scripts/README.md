@@ -37,6 +37,7 @@ Provides menu-driven interface for:
 - View logs and daemon monitor events
 - Check status
 - Check MCP tool list via API (/mcp/tools)
+- Sync discovered MCP tools into DB registry (/mcp/registry/tools/sync)
 - Start local worker
 - **Manage local watcher** (start/stop/restart/logs)
 - Shell operations (rebuild, cleanup, etc.)

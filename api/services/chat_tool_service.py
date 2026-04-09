@@ -4,9 +4,11 @@ import json
 import re
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from schemas.llm_providers import LLMProviderChatRequest
 from schemas.model import LlmProvider
-from services import llm_service, mcp_client_service
+from services import llm_service, mcp_client_service, mcp_tool_registry_service
 from utils.config import (
     MCP_CHAT_TOOLING_ENABLED,
     MCP_CHAT_TOOLING_MAX_TOOLS,
@@ -143,7 +145,7 @@ def _append_tool_context_to_prompt(base_prompt: str | None, tool_results: list[d
     return tool_instructions
 
 
-def chat_with_optional_mcp_tools(provider: LlmProvider, request_body: LLMProviderChatRequest) -> dict[str, Any]:
+def chat_with_optional_mcp_tools(provider: LlmProvider, request_body: LLMProviderChatRequest, db: Session | None = None) -> dict[str, Any]:
     use_tools = _bool_from_metadata(request_body.metadata, "enable_mcp_tools", MCP_CHAT_TOOLING_ENABLED)
     user_message = request_body.latest_user_message()
 
@@ -193,9 +195,42 @@ def chat_with_optional_mcp_tools(provider: LlmProvider, request_body: LLMProvide
         return response
 
     executed_tools: list[dict[str, Any]] = []
+    secret_status_map = (
+        mcp_tool_registry_service.get_tool_secret_status_map(
+            db, [str(item.get("name") or "") for item in planned_tools]
+        )
+        if db is not None
+        else {}
+    )
+
     for planned in planned_tools:
         tool_name = str(planned.get("name") or "")
         arguments = planned.get("arguments") if isinstance(planned.get("arguments"), dict) else {}
+
+        tool_status = secret_status_map.get(tool_name) or {}
+        if tool_status and not bool(tool_status.get("enabled", True)):
+            executed_tools.append(
+                {
+                    "name": tool_name,
+                    "arguments": arguments,
+                    "is_error": True,
+                    "error": "Tool is disabled in MCP registry",
+                }
+            )
+            continue
+
+        missing_secret_keys = tool_status.get("missing_secret_keys", []) if isinstance(tool_status, dict) else []
+        if missing_secret_keys:
+            executed_tools.append(
+                {
+                    "name": tool_name,
+                    "arguments": arguments,
+                    "is_error": True,
+                    "error": f"Tool secret prerequisites are missing: {', '.join([str(key) for key in missing_secret_keys])}",
+                }
+            )
+            continue
+
         try:
             result = mcp_client_service.call_mcp_tool(tool_name, arguments)
             executed_tools.append(

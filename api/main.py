@@ -12,7 +12,7 @@ import uvicorn
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from utils.rate_limit import limiter
-from routers import packages, schedules, secrets, runs, llm_providers, chat, mcp
+from routers import packages, schedules, secrets, runs, llm_providers, chat, mcp, mcp_registry
 
 # Secure default: only allow localhost for development unless overridden
 from utils.config import ( _CORS_ORIGINS_DEFAULT,STORAGE_DIR, 
@@ -62,6 +62,7 @@ app.include_router(runs.router)
 app.include_router(llm_providers.router)
 app.include_router(chat.router)
 app.include_router(mcp.router)
+app.include_router(mcp_registry.router)
 
 
 @app.get("/health")

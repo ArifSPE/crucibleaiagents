@@ -367,3 +367,66 @@ def test_chat_uses_mcp_tools_when_enabled(client, db, monkeypatch):
     assert payload["response"]["mcp_tools"]["enabled"] is True
     assert payload["response"]["mcp_tools"]["used_tool_count"] == 1
     assert payload["response"]["mcp_tools"]["executed_tools"][0]["name"] == "ping"
+
+
+def test_chat_mcp_tool_blocked_when_required_secret_missing(client, db, monkeypatch):
+    from schemas.model import MCPToolRegistry
+
+    provider = _create_provider(db, "local_ollama")
+    db.add(
+        MCPToolRegistry(
+            tool_name="tavily_search",
+            description="Search tool",
+            enabled=True,
+            required_secret_keys=["TAVILY_API_KEY"],
+        )
+    )
+    db.commit()
+
+    def fake_chat_with_provider(_db_provider, chat_request):
+        latest = chat_request.latest_user_message()
+        if "Return ONLY valid JSON" in latest:
+            return {
+                "provider": "local_ollama",
+                "reply": '{"tools":[{"name":"tavily_search","arguments":{"query":"hello"}}],"reason":"Needs web search."}',
+            }
+        return {
+            "provider": "local_ollama",
+            "reply": "Final answer without external tool.",
+        }
+
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(
+        chat_router.chat_tool_service.mcp_client_service,
+        "list_mcp_tools",
+        lambda: MCPToolsListResponse(
+            server_url="http://mcp_server:9001/mcp",
+            tools=[MCPToolInfo(name="tavily_search", description="Search tool", input_schema={"type": "object"})],
+        ),
+    )
+
+    invoke_called = {"value": False}
+
+    def fake_call_tool(_tool_name, _arguments):
+        invoke_called["value"] = True
+        return MCPToolInvokeResponse(tool_name="tavily_search", content=[], is_error=False, raw_result={})
+
+    monkeypatch.setattr(chat_router.chat_tool_service.mcp_client_service, "call_mcp_tool", fake_call_tool)
+
+    resp = client.post(
+        f"/chat/{provider.id}",
+        json={
+            "provider_name": "local_ollama",
+            "message": "Find latest info",
+            "metadata": {"enable_mcp_tools": True},
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert invoke_called["value"] is False
+    executed = payload["response"]["mcp_tools"]["executed_tools"]
+    assert len(executed) == 1
+    assert executed[0]["name"] == "tavily_search"
+    assert executed[0]["is_error"] is True
+    assert "missing" in executed[0]["error"].lower()
