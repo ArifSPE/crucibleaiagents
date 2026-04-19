@@ -620,7 +620,7 @@ Secrets are automatically injected at runtime. Never commit API keys or credenti
 | `DB_PORT` | int | `5432` | PostgreSQL port |
 | `DB_NAME` | string | `crucibleaiagents` | Database name (env var is `POSTGRES_DB` in compose) |
 | `DB_USER` | string | `admin` | Database user |
-| `DB_PASSWORD` | string | `secret123` | Database password (⚠️ use secrets in production) |
+| `DB_PASSWORD` | string | `************` | Database password (⚠️ use secrets in production) |
 
 ### Storage & Packages
 
