@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 
 from fastapi import APIRouter
 from fastapi import Header, HTTPException
@@ -18,8 +19,25 @@ LOGGER = get_logger("api.routers.mcp_registry")
 def _validate_secret_resolver_token(token: str | None) -> None:
     expected = (os.getenv("MCP_SECRET_RESOLVER_TOKEN", "") or "").strip()
     if not expected:
-        return
-    if (token or "").strip() != expected:
+        log_event(
+            LOGGER,
+            30,
+            "mcp.registry.secret.resolve.disabled",
+            "Rejected MCP secret resolution because the resolver token is not configured",
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="MCP secret resolver endpoint is disabled until MCP_SECRET_RESOLVER_TOKEN is configured",
+        )
+
+    provided = (token or "").strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        log_event(
+            LOGGER,
+            30,
+            "mcp.registry.secret.resolve.denied",
+            "Rejected MCP secret resolution because the resolver token was invalid or missing",
+        )
         raise HTTPException(status_code=403, detail="Invalid MCP secret resolver token")
 
 

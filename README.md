@@ -682,6 +682,7 @@ Secrets are automatically injected at runtime. Never commit API keys or credenti
 | `MCP_RESOURCE_ALLOWED_EXTENSIONS` | CSV | common text/code types | Allowed file extensions for resource reads and summarization |
 | `MCP_RESOURCE_MAX_FILE_BYTES` | int | `1048576` | Max file size readable through MCP resources |
 | `MCP_RESOURCE_MAX_LIST_ENTRIES` | int | `200` | Max directory entries returned by MCP resource listing tools |
+| `MCP_SECRET_RESOLVER_TOKEN` | string | — | Required to enable internal MCP secret resolution; if unset, the resolver endpoint stays disabled |
 
 This enables secure MCP resources and prompt-driven file summarization from mounted directories without granting broad container filesystem access.
 

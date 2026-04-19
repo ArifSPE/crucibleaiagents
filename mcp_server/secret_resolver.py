@@ -30,11 +30,15 @@ def resolve_tool_secret(tool_name: str, key_name: str) -> Optional[str]:
     if cache_key in _CACHE:
         return _CACHE[cache_key]
 
-    url = f"{_resolver_base_url()}/mcp/registry/tools/{tool_name}/secrets/{key_name}/resolve"
-    headers = {"Accept": "application/json"}
     token = _resolver_token()
-    if token:
-        headers["x-mcp-secret-token"] = token
+    if not token:
+        return None
+
+    url = f"{_resolver_base_url()}/mcp/registry/tools/{tool_name}/secrets/{key_name}/resolve"
+    headers = {
+        "Accept": "application/json",
+        "x-mcp-secret-token": token,
+    }
 
     try:
         with httpx.Client(timeout=_resolver_timeout_seconds()) as client:

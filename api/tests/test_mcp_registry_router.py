@@ -80,7 +80,7 @@ def test_delete_mcp_registry_tool_secret(client):
     assert tool_resp.json()["missing_secret_keys"] == ["WEB_API_KEY"]
 
 
-def test_resolve_mcp_registry_tool_secret_internal_endpoint(client):
+def test_resolve_mcp_registry_tool_secret_endpoint_disabled_without_token_config(client, monkeypatch):
     client.post(
         "/mcp/registry/tools",
         json={
@@ -98,12 +98,11 @@ def test_resolve_mcp_registry_tool_secret_internal_endpoint(client):
         },
     )
 
+    monkeypatch.delenv("MCP_SECRET_RESOLVER_TOKEN", raising=False)
+
     resolve_resp = client.get("/mcp/registry/tools/tavily_search/secrets/TAVILY_API_KEY/resolve")
-    assert resolve_resp.status_code == 200
-    payload = resolve_resp.json()
-    assert payload["tool_name"] == "tavily_search"
-    assert payload["key_name"] == "TAVILY_API_KEY"
-    assert payload["value"] == "secret-xyz"
+    assert resolve_resp.status_code == 503
+    assert "disabled" in resolve_resp.json()["detail"].lower()
 
 
 def test_resolve_mcp_registry_tool_secret_requires_token_when_configured(client, monkeypatch):
