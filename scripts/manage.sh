@@ -48,15 +48,17 @@ show_menu() {
     echo "  2) Stop platform"
     echo "  3) Restart platform"
     echo "  4) Check status"
-    echo "  5) View logs"
-    echo "  6) View daemon monitor logs"
-    echo "  7) Start local worker"
-    echo "  8) Manage local watcher"
+    echo "  5) Check MCP tool list"
+    echo "  6) View logs"
+    echo "  7) View daemon monitor logs"
+    echo "  8) Start local worker"
+    echo "  9) Manage local watcher"
     echo
     echo -e "${MAGENTA}Advanced:${NC}"
-    echo "  9) Force restart service"
-    echo "  10) Rebuild and restart"
-    echo "  11) Open shell menu"
+    echo "  10) Force restart service"
+    echo "  11) Rebuild and restart"
+    echo "  12) Open shell menu"
+    echo "  13) Sync MCP tools to registry"
     echo
     echo "  0) Exit"
     echo
@@ -69,11 +71,12 @@ show_service_menu() {
     echo "  1) all (all services)" >&2
     echo "  2) api" >&2
     echo "  3) db" >&2
-    echo "  4) watcher" >&2
-    echo "  5) worker_container" >&2
-    echo "  6) docker-proxy" >&2
-    echo "  7) local_watcher" >&2
-    echo "  8) local_worker" >&2
+    echo "  4) mcp_server" >&2
+    echo "  5) watcher" >&2
+    echo "  6) worker_container" >&2
+    echo "  7) docker-proxy" >&2
+    echo "  8) local_watcher" >&2
+    echo "  9) local_worker" >&2
     echo "  0) Back" >&2
     echo >&2
 }
@@ -102,11 +105,12 @@ get_service() {
         1) echo "all" ;;
         2) echo "api" ;;
         3) echo "db" ;;
-        4) echo "watcher" ;;
-        5) echo "worker_container" ;;
-        6) echo "docker-proxy" ;;
-        7) echo "local_watcher" ;;
-        8) echo "local_worker" ;;
+        4) echo "mcp_server" ;;
+        5) echo "watcher" ;;
+        6) echo "worker_container" ;;
+        7) echo "docker-proxy" ;;
+        8) echo "local_watcher" ;;
+        9) echo "local_worker" ;;
         0) echo "back" ;;
         *) echo "invalid" ;;
     esac
@@ -128,6 +132,92 @@ build_frontend() {
     log_info "Building frontend..."
     npm --prefix "$frontend_dir" run build
     log_success "Frontend built successfully → $frontend_dir/dist"
+}
+
+check_mcp_tool_list() {
+    local api_base_url="${API_BASE_URL:-http://localhost:8080}"
+    local normalized_base="${api_base_url%/}"
+    local health_url="${normalized_base}/health"
+    local tools_url="${normalized_base}/mcp/tools"
+    local timeout_seconds="${MCP_TOOL_LIST_TIMEOUT_SECONDS:-15}"
+
+    if ! command -v curl &>/dev/null; then
+        log_error "curl is required to check MCP tool list"
+        return 1
+    fi
+
+    log_info "Checking API health at $health_url"
+    if ! curl -sf --max-time "$timeout_seconds" "$health_url" >/dev/null; then
+        log_error "API health check failed at $health_url"
+        return 1
+    fi
+
+    log_info "Fetching MCP tools via $tools_url"
+    local response
+    if ! response=$(curl -sS --max-time "$timeout_seconds" "$tools_url"); then
+        log_error "Failed to fetch MCP tools from API"
+        return 1
+    fi
+
+    if command -v jq &>/dev/null; then
+        local tool_count
+        tool_count=$(echo "$response" | jq -r '.tools | length' 2>/dev/null || echo "")
+        if [[ "$tool_count" =~ ^[0-9]+$ ]]; then
+            log_success "MCP connectivity confirmed via API (tool_count=$tool_count)"
+            echo "$response" | jq -r '.tools[]?.name' | sed 's/^/  - /'
+        else
+            log_warn "Received unexpected MCP tools payload"
+            echo "$response" | jq '.' 2>/dev/null || echo "$response"
+        fi
+    else
+        log_success "MCP connectivity confirmed via API"
+        echo "$response"
+    fi
+}
+
+sync_mcp_registry_tools() {
+    local api_base_url="${API_BASE_URL:-http://localhost:8080}"
+    local normalized_base="${api_base_url%/}"
+    local health_url="${normalized_base}/health"
+    local sync_url="${normalized_base}/mcp/registry/tools/sync"
+    local timeout_seconds="${MCP_TOOL_LIST_TIMEOUT_SECONDS:-15}"
+
+    if ! command -v curl &>/dev/null; then
+        log_error "curl is required to sync MCP registry tools"
+        return 1
+    fi
+
+    log_info "Checking API health at $health_url"
+    if ! curl -sf --max-time "$timeout_seconds" "$health_url" >/dev/null; then
+        log_error "API health check failed at $health_url"
+        return 1
+    fi
+
+    log_info "Syncing MCP tools into registry via $sync_url"
+    local response
+    if ! response=$(curl -sS --max-time "$timeout_seconds" -X POST "$sync_url"); then
+        log_error "Failed to sync MCP tools into registry"
+        return 1
+    fi
+
+    if command -v jq &>/dev/null; then
+        local registered_count
+        local skipped_count
+        registered_count=$(echo "$response" | jq -r '.registered_count // ""' 2>/dev/null || echo "")
+        skipped_count=$(echo "$response" | jq -r '.skipped_count // ""' 2>/dev/null || echo "")
+
+        if [[ "$registered_count" =~ ^[0-9]+$ ]] && [[ "$skipped_count" =~ ^[0-9]+$ ]]; then
+            log_success "MCP registry sync completed (registered=$registered_count, skipped=$skipped_count)"
+            echo "$response" | jq -r '.registered_tools[]?' | sed 's/^/  + /'
+            echo "$response" | jq -r '.skipped_tools[]?' | sed 's/^/  - /'
+        else
+            log_warn "Received unexpected MCP registry sync payload"
+            echo "$response" | jq '.' 2>/dev/null || echo "$response"
+        fi
+    else
+        log_success "MCP registry sync completed"
+        echo "$response"
+    fi
 }
 
 # Main loop
@@ -158,23 +248,26 @@ main() {
                 bash "$SCRIPT_DIR/status.sh" --all
                 ;;
             5)
+                check_mcp_tool_list
+                ;;
+            6)
                 service=$(get_service)
                 if [ "$service" != "back" ] && [ "$service" != "invalid" ]; then
                     bash "$SCRIPT_DIR/logs.sh" "$service"
                 fi
                 ;;
-            6)
+            7)
                 log_info "Daemon monitor logs (worker_container)..."
                 docker-compose logs -f worker_container | grep daemon.monitor
                 ;;
-            7)
+            8)
                 if [ -f "$SCRIPT_DIR/run_local_worker.sh" ]; then
                     bash "$SCRIPT_DIR/run_local_worker.sh" start
                 else
                     log_error "Local worker script not found"
                 fi
                 ;;
-            8)
+            9)
                 # Local watcher management submenu
                 while true; do
                     echo
@@ -213,13 +306,13 @@ main() {
                     read -p "Press Enter to continue..."
                 done
                 ;;
-            9)
+            10)
                 service=$(get_service)
                 if [ "$service" != "back" ] && [ "$service" != "invalid" ]; then
                     bash "$SCRIPT_DIR/restart.sh" "$service" --hard
                 fi
                 ;;
-            10)
+            11)
                 while true; do
                     echo
                     echo -e "${MAGENTA}Rebuild and Restart Options:${NC}"
@@ -264,7 +357,7 @@ main() {
                     read -p "Press Enter to continue..."
                 done
                 ;;
-            11)
+            12)
                 while true; do
                     show_shell_menu
                     read -p "Selection: " shell_choice
@@ -309,6 +402,9 @@ main() {
                     read -p "Press Enter to continue..."
                 done
                 ;;
+            13)
+                sync_mcp_registry_tools
+                ;;
             0)
                 log_success "Goodbye!"
                 exit 0
@@ -321,67 +417,10 @@ main() {
     done
 }
 
-# If argument provided, run as CLI mode
+# Interactive menu only mode
 if [[ $# -gt 0 ]]; then
-    case $1 in
-        start)
-            shift
-            bash "$SCRIPT_DIR/start.sh" "$@"
-            ;;
-        stop)
-            shift
-            bash "$SCRIPT_DIR/stop.sh" "$@"
-            ;;
-        restart)
-            shift
-            bash "$SCRIPT_DIR/restart.sh" "$@"
-            ;;
-        status)
-            shift
-            bash "$SCRIPT_DIR/status.sh" "$@"
-            ;;
-        logs)
-            shift
-            bash "$SCRIPT_DIR/logs.sh" "$@"
-            ;;
-        watcher)
-            shift
-            bash "$SCRIPT_DIR/run_local_watcher.sh" "$@"
-            ;;
-        build-frontend)
-            build_frontend
-            ;;
-        *)
-            cat << EOF
-Usage: $0 [COMMAND] [OPTIONS]
-
-COMMANDS:
-    start [OPTIONS]        Start platform
-    stop [OPTIONS]         Stop platform
-    restart [OPTIONS]      Restart services
-    status [OPTIONS]       Check platform status
-    logs [SERVICE]         View service logs
-    watcher [CMD] [OPTS]   Manage local watcher (start|stop|restart|status|logs)
-    build-frontend         Install npm deps and build frontend assets into dist/
-    (no args)              Interactive menu
-
-EXAMPLES:
-    $0 start --daemon
-    $0 status --all
-    $0 logs api
-    $0 logs local_watcher -f
-    $0 watcher start
-    $0 watcher logs -f
-    $0 restart worker_container
-    $0 build-frontend
-
-Run '$0 COMMAND --help' for command-specific options.
-
-EOF
-            exit 1
-            ;;
-    esac
-else
-    # Interactive mode
-    main
+    log_warn "Ignoring command-line arguments: manage.sh now runs in interactive menu mode only"
+    echo
 fi
+
+main

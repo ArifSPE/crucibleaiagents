@@ -2,10 +2,10 @@
 
 ## Prerequisites
 
-1. **AgentFlow Platform Running**:
+1. **CrucibleAgentPlatform Running**:
    ```bash
-   cd /Users/arifshaikh/Development/agentflow_starter
-   docker compose up -d
+   cd /Users/arifshaikh/Development/crucibleaiagents
+   ./scripts/start.sh --daemon
    ```
 
 2. **Ollama Running Locally**:
@@ -25,7 +25,7 @@
 3. **Runner Image Built**:
    ```bash
    cd runner
-   docker build -t agentflow-runner:latest .
+   docker build -t crucibleaiagents-runner:latest .
    cd ..
    ```
 
@@ -41,7 +41,7 @@ cd react-ollama-agent
 This will:
 1. ✅ Check if Ollama is running
 2. 📦 Package the agent as a zip file
-3. 📤 Upload to AgentFlow platform
+3. 📤 Register it with the platform
 4. 🧪 Create a test run
 5. 👀 Monitor execution
 6. 📋 Show logs
@@ -56,12 +56,21 @@ zip -r ../react-ollama-agent.zip . -x "*.pyc" -x "__pycache__/*"
 cd ..
 ```
 
-### Step 2: Upload to Platform
+### Step 2: Register with the Platform
 
 ```bash
-curl -X POST "http://localhost:8080/upload-package" \
-  -F "package=@react-ollama-agent.zip" \
-  -F "description=ReAct Ollama Agent with tool calling"
+curl -X POST "http://localhost:8080/packages/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "react-ollama-agent",
+    "version": "1.0.0",
+    "language": "python",
+    "entrypoint": "src/agent.py",
+    "filename": "react-ollama-agent.zip",
+    "deployment": "container"
+  }'
+
+cp react-ollama-agent.zip package/incoming/
 ```
 
 Response will include the `package_id`.
@@ -70,7 +79,9 @@ Response will include the `package_id`.
 
 ```bash
 # Replace <PACKAGE_ID> with the ID from step 2
-curl -X POST "http://localhost:8080/runs?package_id=<PACKAGE_ID>&timeout_seconds=300"
+curl -X POST "http://localhost:8080/runs" \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": <PACKAGE_ID>}'
 ```
 
 Response will include the `run_id`.
@@ -92,12 +103,11 @@ curl "http://localhost:8080/runs/<RUN_ID>/events"
 
 ```bash
 # Run every hour
-curl -X POST "http://localhost:8080/packages/<PACKAGE_ID>/schedule" \
+curl -X POST "http://localhost:8080/packages/<PACKAGE_ID>/schedules" \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "interval",
+    "schedule_type": "interval",
     "interval_seconds": 3600,
-    "timeout_seconds": 300,
     "enabled": true
   }'
 ```
@@ -112,7 +122,7 @@ cd react-ollama-agent
 pip install -r requirements.txt
 
 # Set environment variables
-export TAVILY_API_KEY="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"
+export TAVILY_API_KEY="your-tavily-api-key"
 export OLLAMA_BASE_URL="http://localhost:11434"
 export OLLAMA_MODEL="llama3.1"
 
@@ -165,7 +175,7 @@ For Linux, you may need to use:
 
 Or run Ollama in Docker on the same network:
 ```bash
-docker run -d --network agentflow_starter_default \
+docker run -d --network crucibleaiagents_default \
   --name ollama -v ollama:/root/.ollama \
   -p 11434:11434 ollama/ollama
   
@@ -221,7 +231,7 @@ sweater - it's cool but not too cold.
 - Add more tools to extend functionality
 - Adjust `max_iterations` for more complex reasoning
 - Schedule regular execution for periodic tasks
-- Monitor using the AgentFlow API
+- Monitor using the CrucibleAgentPlatform API
 
 ## Package Structure
 

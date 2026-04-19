@@ -2,11 +2,11 @@
 
 ## Overview
 
-This document describes the security and daemon management enhancements to crucibleaiagents, ported from the agentflow_starter legacy project. These changes implement enterprise-grade security practices and robust daemon container lifecycle management.
+This document describes the security and daemon management model used by CrucibleAgentPlatform for long-running daemon workloads. These changes implement enterprise-grade security practices and robust daemon container lifecycle management.
 
 ## Security Architecture
 
-### 1. Docker Socket Proxy (teknativa/docker-socket-proxy)
+### 1. Docker Socket Proxy (tecnativa/docker-socket-proxy)
 
 **Problem Solved**: Prevents direct access to the Docker daemon socket, restricting worker and runner processes to only necessary operations.
 
@@ -147,11 +147,11 @@ if restart_count >= 5:
 
 ### 3. Automatic Daemon Auto-Start
 
-Daemons marked with `daemon_auto_restart=true` are automatically started when worker boots:
+Daemons marked with `daemon_auto_start=true` are automatically started when the platform boots:
 
 **Startup Flow**:
 1. Worker calls `_enqueue_autostart_daemon_runs("container")`
-2. Query: SELECT packages WHERE runtime_mode='daemon' AND daemon_auto_restart=true
+2. Query: SELECT packages WHERE runtime_mode='daemon' AND daemon_auto_start=true
 3. For each eligible package, create queued run if no existing daemon run
 4. Worker polls and claims the queued daemon run
 5. Worker executes daemon container (detached)
@@ -222,7 +222,7 @@ WHERE id=1;
 
 ## Database Schema
 
-Existing columns utilized (already in agentflow_starter migration):
+Existing compatibility columns utilized by the current schema:
 
 ```sql
 ALTER TABLE agent_packages ADD COLUMN IF NOT EXISTS (
@@ -274,18 +274,18 @@ DB_NAME=crucibleaiagents
 
 ```bash
 # 1. Start docker-proxy first (health checks depend on it)
-docker-compose up -d docker-proxy db
+docker compose up -d docker-proxy db
 
 # 2. Wait for bootstrap (health checks in compose)
 # 3. Start worker_container (includes daemon monitor thread)
-docker-compose up -d worker_container
+docker compose up -d worker_container
 
 # 4. Check logs
-docker-compose logs -f worker_container
+docker compose logs -f worker_container
 # Should see: "Daemon monitor loop started (interval=30s)"
 
 # 5. Verify daemon packages auto-start
-docker-compose logs -f worker_container | grep "daemon_starting\|daemon_started"
+docker compose logs -f worker_container | grep "daemon_starting\|daemon_started"
 ```
 
 ## Security Considerations
@@ -325,13 +325,13 @@ docker --host tcp://docker-proxy:2375 ps  # Should succeed
 ### Check Daemon Monitor Status
 ```bash
 # View monitor loop activity
-docker-compose logs worker_container | grep "daemon.monitor"
+docker compose logs worker_container | grep "daemon.monitor"
 
 # View restart attempts
-docker-compose logs worker_container | grep "restart_requested\|restart_succeeded"
+docker compose logs worker_container | grep "restart_requested\|restart_succeeded"
 
 # View health check results
-docker-compose logs worker_container | grep "health_check"
+docker compose logs worker_container | grep "health_check"
 ```
 
 ### Force Health Check Failure
@@ -341,7 +341,7 @@ docker stop <daemon_container_id>
 
 # Wait for monitor to detect (max 30s)
 # View logs for restart event
-docker-compose logs worker_container | grep "container_exited" -A 2
+docker compose logs worker_container | grep "container_exited" -A 2
 ```
 
 ## Performance Impact
@@ -365,7 +365,5 @@ docker-compose logs worker_container | grep "container_exited" -A 2
 ## References
 
 - Docker Socket Proxy: https://github.com/Tecnativa/docker-socket-proxy
-- agentflow_starter `worker/daemon_manager.py` - Source pattern
-- agentflow_starter `worker/daemon_monitor.py` - Source pattern
 - Docker Network Isolation: https://docs.docker.com/engine/reference/commandline/network_create/
 

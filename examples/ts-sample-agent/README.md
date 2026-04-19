@@ -31,10 +31,20 @@ ts-sample-agent/
    zip -r ../ts-sample-agent.zip manifest.json package.json src/
    ```
 
-2. **Upload via API:**
+2. **Register and stage the package:**
    ```bash
-   curl -X POST http://localhost:8080/upload-package \
-     -F "file=@ts-sample-agent.zip"
+   curl -X POST http://localhost:8080/packages/register \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "ts-sample-agent",
+       "version": "1.0.0",
+       "language": "typescript",
+       "entrypoint": "src/agent.ts",
+       "filename": "ts-sample-agent.zip",
+       "deployment": "container"
+     }'
+
+   cp ts-sample-agent.zip "${PACKAGE_WATCHER_BASE_DIR}/incoming/"
    ```
 
 3. **Create a run:**

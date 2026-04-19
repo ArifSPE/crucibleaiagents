@@ -39,32 +39,39 @@ The agent connects to Ollama on your host machine using `host.docker.internal:11
 
 ## Usage
 
-### Upload to Platform
+### Register with the Platform
 
 ```bash
 # Package the agent
 cd react-ollama-agent
 zip -r ../react-ollama-agent.zip .
+cd ..
 
-# Upload via API
-curl -X POST "http://localhost:8080/upload-package" \
-  -F "package=@../react-ollama-agent.zip" \
-  -F "description=ReAct Ollama Agent with tool calling"
+# Register metadata
+curl -X POST "http://localhost:8080/packages/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "react-ollama-agent",
+    "version": "1.0.0",
+    "language": "python",
+    "entrypoint": "src/agent.py",
+    "filename": "react-ollama-agent.zip",
+    "deployment": "container"
+  }'
+
+# Make the zip available to the watcher
+cp react-ollama-agent.zip package/incoming/
 ```
 
 ### Run Manually
 
 ```bash
-# Create a run
-curl -X POST "http://localhost:8080/runs?package_id=<ID>&timeout_seconds=300"
+curl -X POST "http://localhost:8080/runs" \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": <ID>}'
 
-# Check status
 curl "http://localhost:8080/runs/<RUN_ID>"
-
-# View logs
 curl "http://localhost:8080/runs/<RUN_ID>/logs"
-
-# View events
 curl "http://localhost:8080/runs/<RUN_ID>/events"
 ```
 
@@ -72,12 +79,11 @@ curl "http://localhost:8080/runs/<RUN_ID>/events"
 
 ```bash
 # Run every hour
-curl -X POST "http://localhost:8080/packages/<ID>/schedule" \
+curl -X POST "http://localhost:8080/packages/<ID>/schedules" \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "interval",
+    "schedule_type": "interval",
     "interval_seconds": 3600,
-    "timeout_seconds": 300,
     "enabled": true
   }'
 ```

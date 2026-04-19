@@ -5,7 +5,7 @@ from utils import dependency as dependencies
 from utils.logger import get_logger, log_event, log_exception
 from schemas.llm_providers import LLMProviderChatRequest, ALLOWED_LLM_PROVIDERS
 from schemas.model import LlmProvider
-from services import chat_memory_service, llm_service
+from services import chat_memory_service, chat_tool_service
 from utils.config import (
     LLM_CHAT_MEMORY_READ_LIMIT_DEFAULT,
     LLM_CHAT_MEMORY_READ_LIMIT_MAX,
@@ -206,7 +206,7 @@ def chat_with_provider(llm_provider_id: int, body: LLMProviderChatRequest):
 
         user_message = request_body.latest_user_message()
         try:
-            chat_response = llm_service._chat_with_provider(provider, request_body)
+            chat_response = chat_tool_service.chat_with_optional_mcp_tools(provider, request_body, db)
 
             assistant_reply = ""
             if isinstance(chat_response, dict):

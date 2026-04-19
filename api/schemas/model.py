@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 from utils.db import Base
@@ -146,6 +146,39 @@ class LLMCredential(Base):
     provider: Mapped["LlmProvider"] = relationship(
         "LlmProvider",
         back_populates="credential")
+
+
+class MCPToolRegistry(Base):
+    __tablename__ = "mcp_tool_registry"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tool_name: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    required_secret_keys: Mapped[list] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    secrets: Mapped[list["MCPToolSecret"]] = relationship(
+        "MCPToolSecret",
+        back_populates="tool",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class MCPToolSecret(Base):
+    __tablename__ = "mcp_tool_secrets"
+    __table_args__ = (UniqueConstraint("tool_id", "key_name", name="uq_mcp_tool_secret_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tool_id: Mapped[int] = mapped_column(Integer, ForeignKey("mcp_tool_registry.id"), nullable=False, index=True)
+    key_name: Mapped[str] = mapped_column(String, nullable=False)
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    tool: Mapped["MCPToolRegistry"] = relationship("MCPToolRegistry", back_populates="secrets")
 
 
 class LLMChatMemory(Base):

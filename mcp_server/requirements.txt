@@ -1,0 +1,8 @@
+# Dedicated dependency set for MCP server container.
+# Keep isolated from api/worker pins to avoid resolver conflicts.
+fastmcp>=2.14.0,<4.0.0
+httpx>=0.28.1,<1.0.0
+langchain>=0.3.0
+langgraph>=0.2.0
+langchain-mcp-adapters>=0.2.2
+pypdf>=5.4.0,<6.0.0

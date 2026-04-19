@@ -4,10 +4,10 @@ Example daemon package that runs a FastAPI application and exposes it to the hos
 
 ## What this demonstrates
 
-- `runtime_mode: "daemon"` long-running process
+- `runtime_mode: "daemon"` for long-running execution
 - FastAPI app listening on `0.0.0.0`
-- Manifest `expose.port` so platform maps container port to a host port
-- Optional `expose.host_port` for fixed host-port binding
+- Manifest `exposed_port` so the platform maps the daemon port to the host
+- `daemon_auto_start` support for boot-time startup
 - Health checks via `/health`
 
 ## Files
@@ -21,24 +21,18 @@ Example daemon package that runs a FastAPI application and exposes it to the hos
 ```json
 {
   "runtime_mode": "daemon",
+  "daemon_auto_start": true,
   "health_check": {
     "type": "http",
     "path": "/health",
     "port": 8000
   },
-  "expose": {
-    "port": 8000,
-    "host_port": 18000,
-    "health_check_path": "/health"
-  }
+  "exposed_port": 8000,
+  "restart_policy": "on-failure"
 }
 ```
 
-`expose.port` tells the worker to publish container port `8000`.
-
-`expose.host_port` is optional:
-- If set (for example `18000`), host mapping is fixed to `localhost:18000`.
-- If omitted, Docker assigns a random host port dynamically.
+`exposed_port` tells the platform which host port to publish for the daemon.
 
 ## Deploy and run
 
@@ -46,41 +40,41 @@ Example daemon package that runs a FastAPI application and exposes it to the hos
 
 ```bash
 cd examples/fastapi-daemon-agent
-zip -r fastapi-daemon-agent.zip .
+zip -r fastapi-daemon-agent.zip manifest.json src/ requirements.txt README.md
 ```
 
-2. Upload package
+2. Register metadata and place the bundle in the watcher folder
 
 ```bash
-curl -X POST \
-  -H "Authorization: Bearer $AGENTFLOW_API_TOKEN" \
-  -F "zip_file=@fastapi-daemon-agent.zip" \
-  http://localhost:8080/upload-package
+curl -X POST http://localhost:8080/packages/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "fastapi-daemon-agent",
+    "version": "1.0.0",
+    "language": "python",
+    "entrypoint": "src/agent.py",
+    "filename": "fastapi-daemon-agent.zip",
+    "deployment": "container",
+    "runtime_mode": "daemon",
+    "daemon_auto_start": true,
+    "exposed_port": 8000,
+    "restart_policy": "on-failure"
+  }'
+
+cp fastapi-daemon-agent.zip ../../package/incoming/
 ```
 
-3. Start daemon
+3. Create a run
 
 ```bash
-curl -X POST \
-  -H "Authorization: Bearer $AGENTFLOW_API_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/start
+curl -X POST http://localhost:8080/runs \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": <PACKAGE_ID>}'
 ```
 
-4. Get mapped endpoint URL
+4. Access the exposed endpoint
 
 ```bash
-curl -H "Authorization: Bearer $AGENTFLOW_API_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/endpoint
-```
-
-Use returned host URL to call API routes from outside the container:
-
-- `GET /`
-- `GET /health`
-- `GET /api/ping`
-
-Example:
-
-```bash
-curl http://localhost:<EXPOSED_PORT>/api/ping
+curl http://localhost:8000/health
+curl http://localhost:8000/api/ping
 ```

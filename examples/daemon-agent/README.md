@@ -15,31 +15,44 @@ This example demonstrates how to build an agent that runs in **daemon mode** - a
 
 Daemon mode supports two execution backends:
 
-- **Docker backend** (`worker/worker.py`): runs daemon as detached Docker containers
-- **Local backend** (`worker/worker-local.py`): runs daemon as managed local subprocesses (no Docker daemon container)
+- **Container backend**: the `worker_container` service runs the daemon in Docker and monitors health.
+- **Local backend**: the host-side local worker runs the daemon as a managed subprocess.
 
-Both backends use the same API endpoints:
-
-- `POST /packages/<ID>/daemon/start`
-- `GET /packages/<ID>/daemon/status`
-- `POST /packages/<ID>/daemon/stop`
-- `PUT /packages/<ID>/daemon/auto-start`
+There are currently no dedicated daemon start or stop REST endpoints. Daemon packages use the same package registration and run creation flow as batch packages, with daemon behavior controlled by manifest fields such as `runtime_mode`, `daemon_auto_start`, `health_check`, and `restart_policy`.
 
 ## Deployment
 
-### As Batch Agent (One-time execution)
+### As Batch Agent (one-time execution)
 ```bash
-POST /runs?package_id=<ID>
+curl -X POST http://localhost:8080/runs \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": <ID>}'
 ```
 
-### As Daemon Agent (Long-running)
+### As Daemon Agent (long-running)
 ```bash
-# Manual start
-POST /packages/<ID>/daemon/start
+# 1. Register package metadata
+curl -X POST http://localhost:8080/packages/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "daemon-polling-agent",
+    "version": "1.0.0",
+    "language": "python",
+    "entrypoint": "src/agent.py",
+    "deployment": "container",
+    "runtime_mode": "daemon",
+    "daemon_auto_start": true,
+    "restart_policy": "on-failure",
+    "exposed_port": 5000
+  }'
 
-# With auto-start enabled, daemon starts automatically on platform restart
-# Set via manifest: "auto_start": true
-# Or toggle via API: PUT /packages/<ID>/daemon/auto-start {"auto_start": true}
+# 2. Place the built zip where the watcher can process it
+cp daemon-agent.zip ../../package/incoming/
+
+# 3. Create a run for the daemon package
+curl -X POST http://localhost:8080/runs \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": <ID>}'
 ```
 
 ## Configuration
@@ -77,7 +90,7 @@ Key daemon-specific fields in `manifest.json`:
 ```json
 {
   "runtime_mode": "daemon",
-  "auto_start": true,
+  "daemon_auto_start": true,
   "health_check": {
     "type": "http",
     "path": "/health",
@@ -85,15 +98,15 @@ Key daemon-specific fields in `manifest.json`:
     "interval_seconds": 30,
     "timeout_seconds": 5
   },
-  "restart_policy": "on-failure"
+  "restart_policy": "on-failure",
+  "exposed_port": 5000
 }
 ```
 
-### auto_start Field
+### daemon_auto_start Field
 
-- **true**: Daemon automatically starts when platform (API) restarts
-- **false** (default): Daemon only starts when manually triggered via API
-- Can be toggled at runtime via `PUT /packages/<ID>/daemon/auto-start`
+- **true**: The platform will enqueue the daemon automatically during startup if it is not already queued or running.
+- **false**: The daemon runs only when you explicitly create a run for the package.
 
 ## Restart Policies
 
@@ -109,159 +122,83 @@ Key daemon-specific fields in `manifest.json`:
 
 ## Example Usage
 
-### 1. Deploy the package with auto-start enabled
+### 1. Package the example
 ```bash
 cd examples/daemon-agent
-zip -r daemon-agent.zip .
-curl -X POST \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -F "zip_file=@daemon-agent.zip" \
-  http://localhost:8080/upload-package
+zip -r daemon-agent.zip manifest.json src/ README.md
 ```
 
-### 2. Check auto-start status
+### 2. Register metadata and make the bundle available to the watcher
 ```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>
-
-# Response includes "daemon_auto_start": true if set in manifest
-```
-
-### 3. Check daemon status
-```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/status
-```
-
-### 4. Manually start daemon
-```bash
-curl -X POST \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/start
-```
-
-### 5. Toggle auto-start at runtime
-```bash
-# Enable auto-start
-curl -X PUT \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+curl -X POST http://localhost:8080/packages/register \
   -H "Content-Type: application/json" \
-  -d '{"auto_start": true}' \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/auto-start
+  -d '{
+    "name": "daemon-polling-agent",
+    "version": "1.0.0",
+    "description": "Example daemon agent that continuously polls for events",
+    "language": "python",
+    "entrypoint": "src/agent.py",
+    "filename": "daemon-agent.zip",
+    "deployment": "container",
+    "runtime_mode": "daemon",
+    "daemon_auto_start": true,
+    "restart_policy": "on-failure",
+    "exposed_port": 5000
+  }'
 
-# Disable auto-start
-curl -X PUT \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"auto_start": false}' \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/auto-start
+cp daemon-agent.zip ../../package/incoming/
 ```
 
-### 6. Stop daemon
+### 3. Create and inspect the run
 ```bash
-curl -X POST \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/stop
+curl -X POST http://localhost:8080/runs \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": <PACKAGE_ID>}'
+
+curl http://localhost:8080/runs/<RUN_ID>
+curl http://localhost:8080/runs/<RUN_ID>/logs
+curl http://localhost:8080/runs/<RUN_ID>/events
 ```
 
 ## What Happens with Auto-Start
 
-1. **Platform Starts** (`docker compose up` or `startup/start-local.sh`)
-   - API initializes and calls `_load_auto_start_daemons()`
-   - Queries all packages with `daemon_auto_start=true`
-   - Creates `Run` records (status='queued', runtime_mode='daemon') for each
-
-2. **Worker Picks Up** (continuously polling)
-   - Finds queued daemon runs
-  - Routes to daemon execution path
-  - Starts daemon using active backend (Docker container or local subprocess)
-
-3. **Monitor Tracks**
-  - Monitor loop polls every 30 seconds (configurable)
-   - Performs health checks
-   - Logs status, triggers restart if needed
-
-4. **On Platform Restart**
-   - Auto-start daemons resume automatically
-   - No manual intervention needed
+1. **Platform starts** and loads packages marked with `daemon_auto_start=true`.
+2. **Queued daemon runs are created** when the package is eligible and not already active.
+3. **The selected worker backend picks up the run** and starts the daemon.
+4. **The monitor loop performs health checks** and applies the configured restart policy if the daemon exits unexpectedly.
 
 ## What Happens in Daemon Mode
 
-1. **Start** (POST /daemon/start or auto-start on platform startup)
-   - Creates `Run` record with `runtime_mode='daemon'`
-  - Worker picks it up and starts daemon process for the selected backend
-  - Run returns immediately in non-blocking mode
-
-2. **Monitor** (continuously in background)
-  - Polls every 30 seconds
-  - Checks process/container status
-   - Performs health check endpoint (HTTP GET)
-   - Logs health status to database
-
-3. **Restart** (if configured and container exits)
-   - Detects container exit code
-   - Checks `restart_policy`
-   - Restarts container if policy allows
-   - Updates restart count in `Run.restart_count`
-
-4. **Stop** (POST /daemon/stop)
-   - Sets run status to 'stopping'
-   - Sends SIGTERM to process/container
-   - Waits for graceful shutdown (10s timeout)
-   - Force kills if necessary
+1. **Run creation** creates a run with `runtime_mode='daemon'`.
+2. **Worker execution** starts the daemon in the selected backend.
+3. **Monitoring** polls container or process health and records events.
+4. **Restart handling** applies the configured `restart_policy` if the daemon exits.
 
 ## Local Non-Docker Daemon Mode
 
-Use this mode when running API + frontend + local worker without daemon containers.
+Use this mode when you want the host-side local worker to execute the daemon without Docker-backed agent containers.
 
-### 1. Start local stack
 ```bash
-export AGENTFLOW_API_TOKEN="<your_token>"
-export SECRETS_ENCRYPTION_KEY="<your_key>"
-cd startup
-./start-local.sh
-```
-
-### 2. Deploy daemon package
-```bash
+./scripts/start.sh --daemon --local-worker
 cd examples/daemon-agent
-zip -r daemon-agent.zip .
-curl -X POST \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -F "zip_file=@daemon-agent.zip" \
-  http://localhost:8080/upload-package
+zip -r daemon-agent.zip manifest.json src/ README.md
+cp daemon-agent.zip ../../package/incoming/
 ```
 
-### 3. Start daemon
+Then create a run through the normal runs API and inspect it:
+
 ```bash
-curl -X POST \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/start
+curl -X POST http://localhost:8080/runs \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": <PACKAGE_ID>}'
+
+curl http://localhost:8080/runs/<RUN_ID>
 ```
 
-### 4. Check status
-```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/status
-```
-
-Expected in local mode:
-
-- `status: "running"`
-- `container_id` is a local pseudo id like `local-pid-12345`
-
-### 5. Verify health endpoint
-In local mode, the daemon listens on host localhost directly:
+In local mode, the daemon health endpoint should be reachable from the host on the configured port:
 
 ```bash
-curl -s http://localhost:5000/health | jq .
-```
-
-### 6. Stop daemon
-```bash
-curl -X POST \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:8080/packages/<PACKAGE_ID>/daemon/stop
+curl -s http://localhost:5000/health
 ```
 
 ## Key Differences from Batch Mode

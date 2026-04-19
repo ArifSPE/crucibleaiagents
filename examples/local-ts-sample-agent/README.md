@@ -26,33 +26,41 @@ local-ts-sample-agent/
 
 ## Deploy and test locally
 
-### 1. Package and upload
+### 1. Package and register
 
 ```bash
 cd examples/local-ts-sample-agent
 zip -r ../../local-ts-sample-agent.zip manifest.json package.json tsconfig.json src/
 cd ../..
 
-# Upload via API (platform must be running locally)
-curl -X POST http://localhost:8080/upload-package \
-  -F "file=@local-ts-sample-agent.zip"
+curl -X POST http://localhost:8080/packages/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "local-ts-sample-agent",
+    "version": "1.0.0",
+    "language": "typescript",
+    "entrypoint": "src/agent.ts",
+    "filename": "local-ts-sample-agent.zip",
+    "deployment": "local"
+  }'
+
+cp local-ts-sample-agent.zip "${PACKAGE_WATCHER_BASE_DIR}/incoming/"
 ```
 
 ### 2. Start the local worker
 
 ```bash
-# From repo root with venv active
-source .venv/bin/activate
-python -m worker.local_worker
+# From repo root
+./scripts/run_local_worker.sh start
 ```
 
 ### 3. Manually trigger a run
 
 ```bash
-# Replace <package_id> with the ID returned by the upload
+# Replace <package_id> with the ID returned by registration
 curl -X POST http://localhost:8080/runs \
   -H "Content-Type: application/json" \
-  -d '{"package_id": <package_id>, "inputs": {}}'
+  -d '{"package_id": <package_id>}'
 ```
 
 ### 4. Watch the scheduled run

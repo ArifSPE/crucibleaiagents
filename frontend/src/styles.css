@@ -295,6 +295,51 @@ button {
   overflow-wrap: anywhere;
 }
 
+.code-block {
+  margin: 0;
+  white-space: pre-wrap;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--accent-soft);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.mcp-tools-section {
+  grid-column: 1 / -1;
+}
+
+.mcp-schema-cell {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.mcp-resource-layout,
+.mcp-prompt-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+}
+
+.mcp-preview-panel {
+  display: grid;
+  gap: 0.65rem;
+  align-content: start;
+}
+
+.mcp-prompt-row {
+  align-items: start;
+}
+
+.schema-preview {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .topbar p {
   max-width: 44rem;
 }
@@ -434,6 +479,11 @@ button {
   font-size: 0.9rem;
 }
 
+.chat-system-banner__meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .chat-settings__row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -463,6 +513,23 @@ button {
   grid-column: 1 / -1;
 }
 
+.chat-settings__field--toggle {
+  align-content: end;
+}
+
+.chat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.chat-toggle input {
+  width: 1rem;
+  height: 1rem;
+}
+
 .chat-thread {
   flex: 1;
   overflow-y: auto;
@@ -481,6 +548,53 @@ button {
 
 .chat-page .chat-bubble p {
   margin: 0;
+}
+
+.chat-mcp-meta {
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.chat-mcp-details {
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-mcp-details summary {
+  cursor: pointer;
+  color: var(--accent-soft);
+  font-size: 0.78rem;
+}
+
+.chat-mcp-details__reason,
+.chat-mcp-details__empty {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.chat-mcp-details__list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.chat-mcp-tool-card {
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.chat-mcp-tool-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.35rem;
 }
 
 .chat-page .chat-bubble--user {
@@ -1376,7 +1490,9 @@ textarea {
   .page-grid--two-column,
   .page-grid--chat,
   .detail-grid,
-  .form-grid {
+  .form-grid,
+  .mcp-resource-layout,
+  .mcp-prompt-layout {
     grid-template-columns: 1fr;
   }
 

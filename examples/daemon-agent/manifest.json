@@ -6,7 +6,7 @@
   "entrypoint": "src/agent.py",
   "timeout_seconds": 3600,
   "runtime_mode": "daemon",
-  "auto_start": true,
+  "daemon_auto_start": true,
   "health_check": {
     "type": "http",
     "path": "/health",

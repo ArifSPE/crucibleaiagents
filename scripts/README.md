@@ -25,7 +25,7 @@ chmod +x scripts/*.sh
 
 ### 🚀 `manage.sh` - Interactive Platform Management Hub
 
-Central command for all platform operations with interactive and CLI modes.
+Central command for all platform operations in interactive menu mode.
 
 **Interactive Mode:**
 ```bash
@@ -36,20 +36,14 @@ Provides menu-driven interface for:
 - Start/stop/restart platform
 - View logs and daemon monitor events
 - Check status
+- Check MCP tool list via API (/mcp/tools)
+- Sync discovered MCP tools into DB registry (/mcp/registry/tools/sync)
 - Start local worker
 - **Manage local watcher** (start/stop/restart/logs)
 - Shell operations (rebuild, cleanup, etc.)
 
-**CLI Mode:**
-```bash
-./scripts/manage.sh start --daemon
-./scripts/manage.sh status --all
-./scripts/manage.sh logs api
-./scripts/manage.sh logs local_watcher
-./scripts/manage.sh watcher start          # Start local watcher
-./scripts/manage.sh watcher logs -f        # Follow local watcher logs
-./scripts/manage.sh restart worker_container
-```
+`manage.sh` now always opens the interactive menu. Use the menu options for
+start/stop/restart/status/logs/MCP checks and watcher management.
 
 ---
 
@@ -220,12 +214,13 @@ Starts all platform services in correct dependency order with health checks.
 ```
 
 **What it does:**
-1. ✅ Checks Docker and docker-compose availability
+1. ✅ Checks Docker and Docker Compose availability
 2. ✅ Loads `.env` environment variables
 3. ✅ Starts `docker-proxy` (security layer)
 4. ✅ Starts database with health checks
-5. ✅ Starts API with health checks
-6. ✅ Starts watcher, worker, and other services
+5. ✅ Starts MCP server with health checks
+6. ✅ Starts API with health checks
+7. ✅ Starts watcher, worker, and other services
 7. ✅ **Optionally** starts local watcher if `--local-watcher` flag used
 8. ✅ **Optionally** starts local worker if `--local-worker` flag used
 9. ✅ Verifies all services are running
@@ -450,7 +445,7 @@ agent against `local_worker`.
 1. ✅ Creates `local-ts-sample-agent.zip` from `examples/local-ts-sample-agent`
 2. ✅ Registers package metadata via `/packages/register`
 3. ✅ Extracts package to `package/deployed/<name>_pkg<ID>`
-4. ✅ Creates one run via `/runs?package_id=...`
+4. ✅ Creates one run via `POST /runs` with a JSON package ID payload
 5. ✅ Runs `worker/local_worker.py` briefly to process the run
 6. ✅ Prints run status and recent logs
 
@@ -491,7 +486,7 @@ agent against `local_worker`.
 ./scripts/start.sh --daemon --local-watcher
 
 # Deploy daemon package (database update)
-# ... set daemon_auto_restart=true ...
+# ... set daemon_auto_start=true in the package metadata or manifest ...
 
 # Monitor daemon startup and health
 ./scripts/logs.sh worker_container | grep "daemon.monitor\|daemon_started"
@@ -534,7 +529,7 @@ agent against `local_worker`.
 ./scripts/start.sh --build
 
 # Option 3: Manual rebuild
-docker-compose build --no-cache
+docker compose build --no-cache
 ./scripts/start.sh --daemon
 ```
 
@@ -589,7 +584,7 @@ DAEMON_HEALTH_CHECK_INTERVAL=30
 Check requirements:
 ```bash
 docker --version
-docker-compose --version
+docker compose version
 bash --version
 curl --version
 ```
@@ -673,8 +668,7 @@ chmod +x ./scripts/*.sh
 ### Docker not found
 ```bash
 # Install Docker Desktop or Docker Engine for your OS
-# macOS: brew install docker docker-compose
-# Ubuntu: apt-get install docker.io docker-compose
+# Install Docker Desktop (macOS/Windows) or Docker Engine with Compose v2 (Linux)
 ```
 
 ### Services not starting
@@ -682,8 +676,8 @@ chmod +x ./scripts/*.sh
 # Check logs in detail
 ./scripts/logs.sh -n 500 --no-follow
 
-# Check docker-compose is valid
-docker-compose config | head -50
+# Check Docker Compose config is valid
+docker compose config | head -50
 
 # Try rebuilding
 ./scripts/stop.sh --remove
@@ -691,7 +685,7 @@ docker-compose config | head -50
 ```
 
 ### Port conflicts
-Services use ports: 5432 (DB), 8080 (API), 3000 (Frontend)
+Services use ports: 5432 (DB), 8080 (API), 5173 (Frontend)
 ```bash
 # Check what's using port 8080
 lsof -i :8080

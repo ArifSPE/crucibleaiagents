@@ -144,6 +144,28 @@ export interface ChatProviderResponse {
   endpoint?: string;
   model?: string;
   reply: string;
+  mcp_tools?: ChatMcpToolUsage;
+}
+
+export interface ChatMcpExecutedTool {
+  name: string;
+  arguments?: Record<string, unknown>;
+  is_error?: boolean;
+  error?: string;
+  content?: unknown;
+}
+
+export interface ChatMcpPlannedTool {
+  name: string;
+  arguments?: Record<string, unknown>;
+}
+
+export interface ChatMcpToolUsage {
+  enabled: boolean;
+  planned_tools: ChatMcpPlannedTool[];
+  executed_tools: ChatMcpExecutedTool[];
+  planning_reason?: string;
+  used_tool_count: number;
 }
 
 export interface ChatResponseEnvelope {
@@ -241,4 +263,65 @@ export interface LlmProviderUpsertRequest {
 
 export interface CreatedEntity {
   id: number;
+}
+
+export interface McpHealthResponse {
+  status: string;
+  server_url: string;
+  tool_count: number;
+  resource_count?: number | null;
+  prompt_count?: number | null;
+}
+
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface McpToolsListResponse {
+  server_url: string;
+  tools: McpToolInfo[];
+}
+
+export interface McpResourceInfo {
+  uri: string;
+  name: string;
+  description: string;
+  mime_type?: string | null;
+}
+
+export interface McpResourcesListResponse {
+  server_url: string;
+  resources: McpResourceInfo[];
+}
+
+export interface McpResourceReadResponse {
+  uri: string;
+  contents: Array<Record<string, unknown>>;
+  raw_result: Record<string, unknown>;
+}
+
+export interface McpPromptArgumentInfo {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface McpPromptInfo {
+  name: string;
+  description: string;
+  arguments: McpPromptArgumentInfo[];
+}
+
+export interface McpPromptsListResponse {
+  server_url: string;
+  prompts: McpPromptInfo[];
+}
+
+export interface McpPromptGetResponse {
+  name: string;
+  description: string;
+  messages: Array<Record<string, unknown>>;
+  raw_result: Record<string, unknown>;
 }

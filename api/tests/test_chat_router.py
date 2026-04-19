@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from datetime import datetime, timedelta, timezone
 
 from schemas.model import LlmProvider, LLMChatMemory, LLMChatSummary
+from schemas.mcp import MCPToolInfo, MCPToolsListResponse, MCPToolInvokeResponse
 import routers.chat as chat_router
 
 
@@ -60,7 +61,7 @@ def test_chat_success_delegates_to_service(client, db, monkeypatch):
             "reply": "ok",
         }
 
-    monkeypatch.setattr(chat_router.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
 
     body = {
         "provider_name": "local_ollama",
@@ -82,7 +83,7 @@ def test_chat_propagates_provider_http_exception(client, db, monkeypatch):
     def fake_chat_with_provider(_db_provider, _chat_request):
         raise HTTPException(status_code=502, detail="downstream failure")
 
-    monkeypatch.setattr(chat_router.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
 
     body = {
         "provider_name": "local_ollama",
@@ -102,7 +103,7 @@ def test_chat_persists_turn_when_conversation_id_present(client, db, monkeypatch
             "reply": "assistant-response",
         }
 
-    monkeypatch.setattr(chat_router.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
 
     body = {
         "provider_name": "local_ollama",
@@ -154,7 +155,7 @@ def test_chat_loads_persisted_memory_into_request(client, db, monkeypatch):
             "reply": "ok",
         }
 
-    monkeypatch.setattr(chat_router.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
 
     body = {
         "provider_name": "local_ollama",
@@ -238,7 +239,7 @@ def test_chat_enforces_max_stored_turns_policy(client, db, monkeypatch):
             "reply": f"reply:{chat_request.latest_user_message()}",
         }
 
-    monkeypatch.setattr(chat_router.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
 
     for idx in range(3):
         resp = client.post(
@@ -274,7 +275,7 @@ def test_chat_generates_and_reads_summary(client, db, monkeypatch):
             return {"provider": "local_ollama", "reply": "summary: user asked about deployment and logs"}
         return {"provider": "local_ollama", "reply": f"reply:{prompt}"}
 
-    monkeypatch.setattr(chat_router.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
 
     resp = client.post(
         f"/chat/{provider.id}",
@@ -303,3 +304,129 @@ def test_chat_generates_and_reads_summary(client, db, monkeypatch):
     summary_payload = summary_resp.json()
     assert summary_payload["summary"]["source"] == "llm"
     assert "deployment and logs" in summary_payload["summary"]["summary_text"]
+
+
+def test_chat_uses_mcp_tools_when_enabled(client, db, monkeypatch):
+    provider = _create_provider(db, "local_ollama")
+
+    def fake_chat_with_provider(_db_provider, chat_request):
+        latest = chat_request.latest_user_message()
+        if "Return ONLY valid JSON" in latest:
+            return {
+                "provider": "local_ollama",
+                "reply": '{"tools":[{"name":"ping","arguments":{"message":"hello"}}],"reason":"Need live status."}',
+            }
+
+        if "MCP_TOOL_RESULTS_JSON=" in (chat_request.system_prompt or ""):
+            return {
+                "provider": "local_ollama",
+                "reply": "Used MCP tool results to answer.",
+            }
+
+        return {
+            "provider": "local_ollama",
+            "reply": "Fallback response.",
+        }
+
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
+
+    monkeypatch.setattr(
+        chat_router.chat_tool_service.mcp_client_service,
+        "list_mcp_tools",
+        lambda: MCPToolsListResponse(
+            server_url="http://mcp_server:9001/mcp",
+            tools=[
+                MCPToolInfo(name="ping", description="Ping tool", input_schema={"type": "object"}),
+            ],
+        ),
+    )
+
+    monkeypatch.setattr(
+        chat_router.chat_tool_service.mcp_client_service,
+        "call_mcp_tool",
+        lambda tool_name, arguments: MCPToolInvokeResponse(
+            tool_name=tool_name,
+            content=[{"type": "text", "text": f"pong: {arguments.get('message', '')}"}],
+            is_error=False,
+            raw_result={"ok": True},
+        ),
+    )
+
+    resp = client.post(
+        f"/chat/{provider.id}",
+        json={
+            "provider_name": "local_ollama",
+            "message": "Check MCP and help me",
+            "metadata": {"enable_mcp_tools": True},
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["response"]["reply"] == "Used MCP tool results to answer."
+    assert payload["response"]["mcp_tools"]["enabled"] is True
+    assert payload["response"]["mcp_tools"]["used_tool_count"] == 1
+    assert payload["response"]["mcp_tools"]["executed_tools"][0]["name"] == "ping"
+
+
+def test_chat_mcp_tool_blocked_when_required_secret_missing(client, db, monkeypatch):
+    from schemas.model import MCPToolRegistry
+
+    provider = _create_provider(db, "local_ollama")
+    db.add(
+        MCPToolRegistry(
+            tool_name="tavily_search",
+            description="Search tool",
+            enabled=True,
+            required_secret_keys=["TAVILY_API_KEY"],
+        )
+    )
+    db.commit()
+
+    def fake_chat_with_provider(_db_provider, chat_request):
+        latest = chat_request.latest_user_message()
+        if "Return ONLY valid JSON" in latest:
+            return {
+                "provider": "local_ollama",
+                "reply": '{"tools":[{"name":"tavily_search","arguments":{"query":"hello"}}],"reason":"Needs web search."}',
+            }
+        return {
+            "provider": "local_ollama",
+            "reply": "Final answer without external tool.",
+        }
+
+    monkeypatch.setattr(chat_router.chat_tool_service.llm_service, "_chat_with_provider", fake_chat_with_provider)
+    monkeypatch.setattr(
+        chat_router.chat_tool_service.mcp_client_service,
+        "list_mcp_tools",
+        lambda: MCPToolsListResponse(
+            server_url="http://mcp_server:9001/mcp",
+            tools=[MCPToolInfo(name="tavily_search", description="Search tool", input_schema={"type": "object"})],
+        ),
+    )
+
+    invoke_called = {"value": False}
+
+    def fake_call_tool(_tool_name, _arguments):
+        invoke_called["value"] = True
+        return MCPToolInvokeResponse(tool_name="tavily_search", content=[], is_error=False, raw_result={})
+
+    monkeypatch.setattr(chat_router.chat_tool_service.mcp_client_service, "call_mcp_tool", fake_call_tool)
+
+    resp = client.post(
+        f"/chat/{provider.id}",
+        json={
+            "provider_name": "local_ollama",
+            "message": "Find latest info",
+            "metadata": {"enable_mcp_tools": True},
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert invoke_called["value"] is False
+    executed = payload["response"]["mcp_tools"]["executed_tools"]
+    assert len(executed) == 1
+    assert executed[0]["name"] == "tavily_search"
+    assert executed[0]["is_error"] is True
+    assert "missing" in executed[0]["error"].lower()

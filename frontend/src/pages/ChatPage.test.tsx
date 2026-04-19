@@ -6,6 +6,7 @@ import { ChatPage } from "./ChatPage";
 import { usePolling } from "../hooks/usePolling";
 
 const mockSendChatMessage = vi.fn();
+const mockGetProviderModels = vi.fn();
 const usePollingMock = vi.mocked(usePolling);
 const CHAT_DRAFTS_STORAGE_KEY = "chat.draftsByScope.v1";
 
@@ -15,6 +16,7 @@ const PROVIDER_2 = { id: 2, provider: "anthropic", description: "Claude", endpoi
 vi.mock("../services/platformApi", () => ({
   platformApi: {
     sendChatMessage: (...args: unknown[]) => mockSendChatMessage(...args),
+    getProviderModels: (...args: unknown[]) => mockGetProviderModels(...args),
     listProviders: vi.fn(),
   },
 }));
@@ -36,6 +38,8 @@ describe("ChatPage", () => {
 
   beforeEach(() => {
     mockSendChatMessage.mockReset();
+    mockGetProviderModels.mockReset();
+    mockGetProviderModels.mockResolvedValue({ models: [] });
     window.localStorage.clear();
     let uuidCounter = 1;
     randomUuidSpy = vi.spyOn(globalThis.crypto, "randomUUID").mockImplementation(
@@ -87,7 +91,59 @@ describe("ChatPage", () => {
     expect(mockSendChatMessage.mock.calls[0][0]).toBe(1);
     expect(mockSendChatMessage.mock.calls[0][1]).toMatchObject({
       provider_name: "local_ollama",
-      message: "Hi!",
+      messages: [{ role: "user", content: "Hi!" }],
+      metadata: { enable_mcp_tools: false },
+    });
+  });
+
+  it("sends MCP enable flag when MCP tools toggle is enabled", async () => {
+    mockSendChatMessage.mockResolvedValue({
+      response: {
+        provider_id: 1,
+        provider: "local_ollama",
+        model: "llama3.1",
+        reply: "Tool-backed response",
+        mcp_tools: {
+          enabled: true,
+          planned_tools: [{ name: "ping", arguments: { message: "hello" } }],
+          executed_tools: [{ name: "ping", is_error: false }],
+          used_tool_count: 1,
+        },
+      },
+    });
+
+    renderChat();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Use tools" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(screen.getByText("Tool-backed response")).toBeInTheDocument());
+    expect(screen.getByText(/MCP tools:/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("View MCP execution details"));
+    expect(screen.getByText("ping")).toBeInTheDocument();
+    expect(screen.getByText("ok")).toBeInTheDocument();
+    expect(mockSendChatMessage.mock.calls[0][1]).toMatchObject({
+      metadata: { enable_mcp_tools: true },
+    });
+  });
+
+  it("shows toolbar MCP toggle and sends enabled metadata when toggled on", async () => {
+    mockSendChatMessage.mockResolvedValue({
+      response: { provider_id: 1, provider: "local_ollama", model: "llama3.1", reply: "Done" },
+    });
+
+    renderChat();
+    expect(screen.getByRole("button", { name: "MCP: Off" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "MCP: Off" }));
+    expect(screen.getByRole("button", { name: "MCP: On" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Use MCP now" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(mockSendChatMessage).toHaveBeenCalledTimes(1));
+    expect(mockSendChatMessage.mock.calls[0][1]).toMatchObject({
+      metadata: { enable_mcp_tools: true },
     });
   });
 
