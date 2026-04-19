@@ -1,81 +1,72 @@
 # Worker Runbook
 
-This runbook explains how to run split workers and how deployment mode maps to worker execution strategy.
+This runbook explains how the platform routes runs to the correct worker path and how to validate local versus container execution.
 
 ## Deployment Routing Matrix
 
-| AgentPackage.deployment | Claimed by worker | Execution mode |
+| Package deployment | Claimed by | Execution mode |
 |---|---|---|
-| local (default) | host local worker process | Subprocess on host PC |
-| container | worker_container | Docker runner container (`docker run`) |
+| local | local worker on the host | Subprocess execution on the host machine |
+| container | worker_container | Detached Docker runner container |
 
 Notes:
-- Values are normalized to `local` or `container` during package registration.
-- Empty or unknown deployment values are treated as `local`.
+- Deployment values are normalized to local or container during package registration.
+- Empty or unknown deployment values fall back to local.
 
-## Start With Docker Compose
-
-Build and run core stack:
+## Start the Core Platform
 
 ```bash
-docker compose up --build db api watcher worker_container
+./scripts/start.sh --daemon
 ```
 
-Run in background:
+This starts the database, MCP server, API, watcher, and container worker services.
+
+If you also want to process local deployment runs on the host, start the local worker too:
 
 ```bash
-docker compose up -d --build db api watcher worker_container
-```
-
-Stop stack:
-
-```bash
-docker compose down
+./scripts/run_local_worker.sh start
 ```
 
 ## Required Runtime Conditions
 
-- `worker_container` must have access to Docker daemon via `/var/run/docker.sock`.
-- Runner image must exist for container deployments:
-
-```bash
-docker build -t crucibleaiagents-runner:latest ./runner
-```
-
-- Local worker must run on host OS (not in Docker):
-
-```bash
-./scripts/run_local_worker_host.sh
-```
+- Docker Desktop or Docker Engine with Compose v2 must be running.
+- The worker_container service talks to Docker through the restricted docker-proxy service.
+- The runner image for container workloads is built automatically by the platform scripts when needed.
 
 ## Useful Environment Variables
 
 - `POLL_SECONDS`: worker polling interval.
-- `RUNNER_IMAGE`: runner image for container deployments (default: `crucibleaiagents-runner:latest`).
-- `RUNNER_API_BASE_URL`: API URL runner uses for posting events/logs.
+- `RUNNER_IMAGE`: runner image for container deployments.
+- `RUNNER_API_BASE_URL`: API URL used inside runner containers.
 - `DATABASE_URL`: worker database connection string.
+- `DAEMON_HEALTH_CHECK_INTERVAL`: monitor interval for daemon health checks.
 
 ## Quick Validation Flow
 
-1. Register package with `deployment=local` and create a run.
-2. Verify `worker_local` picks it and run completes.
-3. Register package with `deployment=container` and create a run.
-4. Verify `worker_container` picks it and a Docker container is started.
-5. Check run logs/events from API endpoints.
+1. Register a package with deployment set to local and create a run.
+2. Confirm the host local worker processes it successfully.
+3. Register a package with deployment set to container and create a run.
+4. Confirm worker_container starts and tracks the Docker-backed run.
+5. Inspect logs and events from the API.
 
 ## Debug Tips
 
-Check worker logs:
+Check container worker logs:
 
 ```bash
-docker compose logs -f worker_local
 docker compose logs -f worker_container
 ```
 
-Host local worker logs are printed in the terminal where `./scripts/run_local_worker_host.sh` is running.
+Check local worker logs:
+
+```bash
+./scripts/run_local_worker.sh logs -f
+```
 
 Check API run state:
 
 ```bash
-curl -s http://localhost:8080/runs | jq
+curl -s http://localhost:8080/runs
+curl -s http://localhost:8080/runs/1/logs
+curl -s http://localhost:8080/runs/1/events
 ```

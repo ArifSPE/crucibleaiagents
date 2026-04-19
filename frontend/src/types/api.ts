@@ -269,6 +269,8 @@ export interface McpHealthResponse {
   status: string;
   server_url: string;
   tool_count: number;
+  resource_count?: number | null;
+  prompt_count?: number | null;
 }
 
 export interface McpToolInfo {
@@ -280,4 +282,46 @@ export interface McpToolInfo {
 export interface McpToolsListResponse {
   server_url: string;
   tools: McpToolInfo[];
+}
+
+export interface McpResourceInfo {
+  uri: string;
+  name: string;
+  description: string;
+  mime_type?: string | null;
+}
+
+export interface McpResourcesListResponse {
+  server_url: string;
+  resources: McpResourceInfo[];
+}
+
+export interface McpResourceReadResponse {
+  uri: string;
+  contents: Array<Record<string, unknown>>;
+  raw_result: Record<string, unknown>;
+}
+
+export interface McpPromptArgumentInfo {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface McpPromptInfo {
+  name: string;
+  description: string;
+  arguments: McpPromptArgumentInfo[];
+}
+
+export interface McpPromptsListResponse {
+  server_url: string;
+  prompts: McpPromptInfo[];
+}
+
+export interface McpPromptGetResponse {
+  name: string;
+  description: string;
+  messages: Array<Record<string, unknown>>;
+  raw_result: Record<string, unknown>;
 }

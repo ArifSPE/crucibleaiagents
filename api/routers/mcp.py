@@ -1,7 +1,15 @@
 from fastapi import APIRouter
 
-from schemas.mcp import MCPToolInvokeRequest
-from services.mcp_client_service import list_mcp_tools, call_mcp_tool, get_mcp_health
+from schemas.mcp import MCPPromptGetRequest, MCPToolInvokeRequest
+from services.mcp_client_service import (
+    call_mcp_tool,
+    get_mcp_health,
+    get_mcp_prompt,
+    list_mcp_prompts,
+    list_mcp_resources,
+    list_mcp_tools,
+    read_mcp_resource,
+)
 from utils.logger import get_logger, log_event
 
 
@@ -27,4 +35,32 @@ def get_tools():
 def invoke_tool(tool_name: str, body: MCPToolInvokeRequest):
     response = call_mcp_tool(tool_name, body.arguments)
     log_event(LOGGER, 20, "mcp.tool.invoked", "Invoked MCP tool via API", tool_name=tool_name, is_error=response.is_error)
+    return response
+
+
+@router.get("/resources")
+def get_resources():
+    response = list_mcp_resources()
+    log_event(LOGGER, 20, "mcp.resources.listed", "Listed MCP resources", resource_count=len(response.resources))
+    return response
+
+
+@router.get("/resources/read")
+def get_resource_content(uri: str):
+    response = read_mcp_resource(uri)
+    log_event(LOGGER, 20, "mcp.resource.read", "Read MCP resource via API", uri=uri, content_count=len(response.contents))
+    return response
+
+
+@router.get("/prompts")
+def get_prompts():
+    response = list_mcp_prompts()
+    log_event(LOGGER, 20, "mcp.prompts.listed", "Listed MCP prompts", prompt_count=len(response.prompts))
+    return response
+
+
+@router.post("/prompts/{prompt_name}/render")
+def render_prompt(prompt_name: str, body: MCPPromptGetRequest):
+    response = get_mcp_prompt(prompt_name, body.arguments)
+    log_event(LOGGER, 20, "mcp.prompt.rendered", "Rendered MCP prompt via API", prompt_name=prompt_name, message_count=len(response.messages))
     return response

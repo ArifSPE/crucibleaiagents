@@ -127,6 +127,18 @@ else
     log_warn "No .env file found, using defaults"
 fi
 
+# The .env file may define DOCKER_HOST for containers to reach the docker-proxy service.
+# Host-side orchestration commands must continue talking to the local Docker Desktop daemon.
+if [[ "${DOCKER_HOST:-}" == tcp://docker-proxy:* ]]; then
+    log_info "Resetting DOCKER_HOST for host-side Docker commands"
+    unset DOCKER_HOST
+fi
+
+# Ensure the optional MCP resource mount path exists on the host.
+if [ -n "${MCP_RESOURCE_HOST_PATH:-}" ]; then
+    mkdir -p "${MCP_RESOURCE_HOST_PATH}"
+fi
+
 # Check docker-compose
 if ! command -v docker-compose &> /dev/null; then
     log_error "docker-compose not found. Please install Docker Compose."

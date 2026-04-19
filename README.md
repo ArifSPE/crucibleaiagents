@@ -1,8 +1,16 @@
 # 🚀 CrucibleAgentPlatform
 
-![CRUCIUM Platform](logo.png)
+![CrucibleAgentPlatform logo](logo.png)
 
-A production-ready platform for deploying, managing, and executing AI agents and autonomous workflows with enterprise-grade security, observability, and operational controls.
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/api-FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/frontend-React-61DAFB?logo=react&logoColor=0b1220)
+![Docker](https://img.shields.io/badge/runtime-Docker-2496ED?logo=docker&logoColor=white)
+![MCP](https://img.shields.io/badge/protocol-MCP-7C3AED)
+
+A secure control plane for packaging, deploying, scheduling, and operating AI agents across local and containerized runtimes, with strong observability, secrets handling, and built-in Model Context Protocol support.
+
+> Release note: the current license in [LICENSE](LICENSE) is a custom personal-use license. If you intend a true open-source launch, update it to an OSI-approved license before publishing the repository publicly.
 
 ## 📋 Overview
 
@@ -17,6 +25,18 @@ A production-ready platform for deploying, managing, and executing AI agents and
 - **Scalability**: Threaded worker pools, scheduler integration, and async I/O
 - **REST API**: Full-featured API for agent management and run orchestration
 - **MCP Integration**: Dedicated FastMCP server container with HTTP tool invocation from API
+
+## ✅ Open-Source Release Readiness
+
+Before a public community launch, confirm the following:
+
+- [ ] Replace the current personal-use license with the license you want for public distribution
+- [ ] Review `.env.sample` and examples to ensure no secrets or internal-only values remain
+- [ ] Enable GitHub Issues, Discussions, and repository metadata for community contributions
+- [ ] Verify example agents still run against the latest API and startup scripts
+- [ ] Add screenshots or a short demo GIF for the operator console if you want a stronger first impression
+
+A more detailed maintainer checklist is available in [docs/OPEN_SOURCE_RELEASE_CHECKLIST.md](docs/OPEN_SOURCE_RELEASE_CHECKLIST.md), and ready-to-use repository description, topic, and launch copy is available in [docs/GITHUB_RELEASE_COPY.md](docs/GITHUB_RELEASE_COPY.md).
 
 ## 🏗️ Architecture
 
@@ -92,14 +112,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # Configure environment (see Environment Variables section)
-cp .env.example .env
+cp .env.sample .env
 # Edit .env with your configuration
 
 # Start platform
-./scripts/start.sh
+./scripts/start.sh --daemon
 
 # Verify health
 curl http://localhost:8080/health
+
+# Frontend operator console
+# Visit http://localhost:5173 in your browser
 
 # Run API tests
 ./scripts/run_tests.sh --api -q
@@ -135,8 +158,14 @@ Default MCP configuration:
 API endpoints:
 
 - `GET /mcp/health`: verify API-to-MCP connectivity
-- `GET /mcp/tools`: list tools exposed by MCP server
+- `GET /mcp/tools`: list tools exposed by the MCP server
 - `POST /mcp/tools/{tool_name}/invoke`: invoke a tool over HTTP
+- `GET /mcp/resources`: list MCP resources exposed by the server
+- `GET /mcp/resources/read?uri=...`: preview resource contents safely
+- `GET /mcp/prompts`: list reusable MCP prompt templates
+- `POST /mcp/prompts/{prompt_name}/render`: render a prompt with JSON arguments
+
+The frontend operator console at `/mcp-server` surfaces these tools, resources, and prompts and supports previewing mounted files from the safe MCP roots, including plain text, Markdown, JSON, DOCX, and PDF files when allowlisted.
 
 Example calls:
 
@@ -190,15 +219,29 @@ This model keeps server bootstrap stable while allowing safe, incremental tool a
 
 ```bash
 # 1. Package agent
-zip -r my-agent.zip manifest.json src/
+zip -r my-agent.zip manifest.json src/ requirements.txt
 
-# 2. Upload to platform
-curl -X POST -F "file=@my-agent.zip" http://localhost:8080/packages
+# 2. Register package metadata with the platform
+curl -X POST http://localhost:8080/packages/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-agent",
+    "version": "1.0.0",
+    "language": "python",
+    "entrypoint": "src/agent.py",
+    "filename": "my-agent.zip",
+    "deployment": "local"
+  }'
 
-# 3. Create run
-curl -X POST http://localhost:8080/runs?package_id=1
+# 3. Optionally drop the zip into the watcher incoming folder
+cp my-agent.zip package/incoming/
 
-# 4. Monitor execution
+# 4. Create run
+curl -X POST http://localhost:8080/runs \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": 1}'
+
+# 5. Monitor execution
 curl http://localhost:8080/runs/1
 ```
 
@@ -274,12 +317,12 @@ The manifest defines how your agent runs on the platform.
 | `timeout_seconds` | int | — | Execution timeout (10-3600, default: 300) |
 | `deployment` | string | — | `local` (default) or `container` |
 | `runtime_mode` | string | — | `batch` (default), `scheduled`, or `daemon` |
-| `auto_start` | boolean | — | Auto-start daemon on platform boot |
+| `daemon_auto_start` | boolean | — | Auto-start daemon packages when the platform boots |
 | `environment` | object | — | Environment variables (use `{secrets.KEY}` for secrets) |
 | `schedule` | object | — | Schedule config for scheduled mode |
 | `health_check` | object | — | Health check config for daemons (HTTP) |
-| `expose` | object | — | Port exposure config for daemons |
-| `restart_policy` | string | — | `on-failure` or `always` (for daemons) |
+| `exposed_port` | int | — | Host port to expose for daemon packages |
+| `restart_policy` | string | — | `on-failure`, `always`, or `never` |
 
 ### Deployment Modes & Examples
 
@@ -304,7 +347,17 @@ The platform includes reference implementations in the `examples/` directory:
 ```bash
 cd examples/local-ts-sample-agent
 zip -r ../local-ts-sample-agent.zip manifest.json src/ requirements.txt
-curl -X POST -F "file=@../local-ts-sample-agent.zip" http://localhost:8080/packages
+curl -X POST http://localhost:8080/packages/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "local-ts-sample-agent",
+    "version": "1.0.0",
+    "language": "typescript",
+    "entrypoint": "src/agent.ts",
+    "filename": "local-ts-sample-agent.zip",
+    "deployment": "local"
+  }'
+cp ../local-ts-sample-agent.zip "${PACKAGE_WATCHER_BASE_DIR}/incoming/"
 ```
 
 #### 2. Scheduled Agent
@@ -358,7 +411,7 @@ curl -X POST -F "file=@../local-ts-sample-agent.zip" http://localhost:8080/packa
   "entrypoint": "src/agent.py",
   "deployment": "container",
   "runtime_mode": "daemon",
-  "auto_start": true,
+  "daemon_auto_start": true,
   "timeout_seconds": 0,
   "health_check": {
     "type": "http",
@@ -366,9 +419,7 @@ curl -X POST -F "file=@../local-ts-sample-agent.zip" http://localhost:8080/packa
     "port": 8000,
     "interval_seconds": 30
   },
-  "expose": {
-    "port": 8000
-  },
+  "exposed_port": 8000,
   "restart_policy": "on-failure"
 }
 ```
@@ -431,10 +482,21 @@ cd ..
 #### Step 3: Register with Platform
 
 ```bash
-# Upload package
-curl -X POST \
-  -F "file=@my-agent.zip" \
-  http://localhost:8080/packages
+# Register package metadata
+curl -X POST http://localhost:8080/packages/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-agent",
+    "version": "1.0.0",
+    "description": "My first agent",
+    "language": "python",
+    "entrypoint": "src/agent.py",
+    "filename": "my-agent.zip",
+    "deployment": "local"
+  }'
+
+# Then place the built zip where the watcher can process it
+cp my-agent.zip "${PACKAGE_WATCHER_BASE_DIR}/incoming/"
 
 # Returns:
 # {"id": 1, "name": "my-agent", "version": "1.0.0", ...}
@@ -444,7 +506,9 @@ curl -X POST \
 
 ```bash
 # Create run
-RUN_JSON=$(curl -s -X POST "http://localhost:8080/runs?package_id=1")
+RUN_JSON=$(curl -s -X POST "http://localhost:8080/runs" \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": 1}')
 RUN_ID=$(echo "$RUN_JSON" | python -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
 
 echo "Run ID: $RUN_ID"
@@ -463,9 +527,10 @@ curl -s http://localhost:8080/runs/$RUN_ID | python -m json.tool
 
 #### Step 5: View Logs and Results
 
-For batch/scheduled runs:
+For batch or scheduled runs:
 ```bash
-curl -s "http://localhost:8080/logs?run_id=$RUN_ID" | python -m json.tool
+curl -s "http://localhost:8080/runs/$RUN_ID/logs" | python -m json.tool
+curl -s "http://localhost:8080/runs/$RUN_ID/events" | python -m json.tool
 ```
 
 For daemon services:
@@ -520,10 +585,10 @@ cp ../my-daemon.zip "${PACKAGE_WATCHER_BASE_DIR}/incoming/"
 Store sensitive data securely using the secrets API:
 
 ```bash
-# Store secret
-curl -X POST http://localhost:8080/secrets \
+# Store secret for a package
+curl -X POST http://localhost:8080/packages/1/secrets \
   -H "Content-Type: application/json" \
-  -d '{"name": "OPENAI_API_KEY", "value": "sk-..."}'
+  -d '{"key_name": "OPENAI_API_KEY", "value": "sk-..."}'
 
 # Reference in manifest
 # "environment": {
@@ -607,6 +672,19 @@ Secrets are automatically injected at runtime. Never commit API keys or credenti
 | `WORKSPACE_PACKAGE_HOST_PATH` | path | — | Host path for packages (for agent access) |
 | `DAEMON_API_BASE_URL` | URL | `http://host.docker.internal:8080` | API URL accessible from daemon containers |
 
+### MCP Advanced Features
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `MCP_RESOURCE_HOST_PATH` | path | `.` | Host folder mounted read-only into the MCP container for resource access |
+| `MCP_RESOURCE_MOUNT_PATH` | path | `/mnt/mcp-resources` | In-container mount path for external files exposed to MCP |
+| `MCP_RESOURCE_ROOTS` | CSV | `/workspace,/mnt/mcp-resources` | Allowlisted roots MCP resources and file-reading tools can access |
+| `MCP_RESOURCE_ALLOWED_EXTENSIONS` | CSV | common text/code types | Allowed file extensions for resource reads and summarization |
+| `MCP_RESOURCE_MAX_FILE_BYTES` | int | `1048576` | Max file size readable through MCP resources |
+| `MCP_RESOURCE_MAX_LIST_ENTRIES` | int | `200` | Max directory entries returned by MCP resource listing tools |
+
+This enables secure MCP resources and prompt-driven file summarization from mounted directories without granting broad container filesystem access.
+
 ### Security
 
 | Variable | Type | Default | Description |
@@ -663,29 +741,34 @@ How to deploy:
 ## 🎯 Execution Modes
 
 ### Batch Runs
-Execute once, exit on completion.
+Execute once and exit on completion.
 
 ```bash
-curl -X POST http://localhost:8080/runs?package_id=1
+curl -X POST http://localhost:8080/runs \
+  -H "Content-Type: application/json" \
+  -d '{"package_id": 1}'
 ```
 
 ### Scheduled Runs
-Execute on cron schedule.
+Execute on an interval, cron, or timestamp schedule.
 
 ```bash
-# Create schedule
-curl -X POST http://localhost:8080/schedules \
-  -d '{"package_id": 1, "cron": "0 */6 * * *"}'
+# Create an interval schedule for package 1
+curl -X POST http://localhost:8080/packages/1/schedules \
+  -H "Content-Type: application/json" \
+  -d '{"schedule_type": "interval", "interval_seconds": 3600, "enabled": true}'
 ```
 
 ### Daemon Services
-Long-running services with auto-restart.
+Long-running services with auto-restart and optional HTTP health checks.
 
-```yaml
-# In agent manifest.json
-"runtime_mode": "daemon",
-"deamon_auto_restart": true,
-"expoded_port": 8000
+```json
+{
+  "runtime_mode": "daemon",
+  "daemon_auto_start": true,
+  "exposed_port": 8000,
+  "restart_policy": "on-failure"
+}
 ```
 
 ---
@@ -726,7 +809,7 @@ curl http://localhost:8080/health
 curl http://localhost:8080/packages
 
 # Check running services
-docker-compose ps
+docker compose ps
 ```
 
 ---
@@ -830,31 +913,37 @@ export ENVIRONMENT=development
 ## 📖 API Endpoints
 
 ### Packages
-- `POST /packages` - Register agent package
+- `POST /packages/register` - Register or update package metadata
 - `GET /packages` - List all packages
 - `GET /packages/{package_id}` - Get package details
-- `DELETE /packages/{package_id}` - Deregister package
 
 ### Runs
-- `POST /runs?package_id={id}` - Create run
+- `POST /runs` - Create a run from a package ID
 - `GET /runs` - List all runs
-- `GET /runs/{run_id}` - Get run status & logs
-- `DELETE /runs/{run_id}` - Cancel run
+- `GET /runs/{run_id}` - Get run status
+- `GET /runs/{run_id}/logs` - Retrieve run logs
+- `GET /runs/{run_id}/events` - Retrieve run events
 
 ### Schedules
-- `POST /schedules` - Create cron schedule
-- `GET /schedules` - List schedules
-- `DELETE /schedules/{schedule_id}` - Remove schedule
+- `GET /schedules` - List schedules across packages
+- `GET /packages/{package_id}/schedules` - List schedules for a package
+- `POST /packages/{package_id}/schedules` - Create a schedule for a package
+- `DELETE /schedules/{schedule_id}` - Remove a schedule
 
 ### Secrets
-- `POST /secrets` - Store encrypted secret
-- `GET /secrets` - List secret names
-- `DELETE /secrets/{name}` - Delete secret
+- `GET /packages/{package_id}/secrets` - List package secret metadata
+- `POST /packages/{package_id}/secrets` - Create or update a package secret
+- `DELETE /packages/{package_id}/secrets/{secret_id}` - Delete a package secret
+
+### MCP
+- `GET /mcp/health` - Check MCP connectivity
+- `GET /mcp/tools` - List MCP tools
+- `GET /mcp/resources` - List MCP resources
+- `GET /mcp/prompts` - List MCP prompt templates
 
 ### System
 - `GET /health` - Health check
-- `GET /llm-providers` - List LLM provider configs
-- `GET /logs` - Retrieve run logs
+- `GET /llm-providers` - List LLM provider configurations
 
 ---
 
@@ -878,9 +967,10 @@ Quick summary:
 
 ## 📞 Support & Contact
 
-- **Issue Tracker**: [GitHub Issues](https://github.com/your-org/crucibleaiagents/issues)
-- **Documentation**: [Docs](./docs)
-- **Examples**: [Example Agents](./examples)
+- **Issue Tracker**: Enable and use the GitHub Issues tab in the published repository
+- **Documentation**: [Docs](docs)
+- **Examples**: [Example Agents](examples)
+- **Commercial licensing and support**: arif@serverlessbytes.com
 
 ---
 
@@ -894,10 +984,10 @@ Personal use is allowed. Enterprise/commercial use and support: arif@serverlessb
 
 ## 🎓 Learn More
 
-- [Worker Runbook](docs/worker-runbook.md) - Operational guide
-- [Agent Development Guide](docs/agent-development.md) - Build agents
-- [API Documentation](docs/api.md) - API reference
-- [Security Guide](docs/security.md) - Security best practices
+- [Worker Runbook](docs/worker-runbook.md) - Worker execution and validation guide
+- [Daemon Security Guide](docs/DAEMON_SECURITY.md) - Daemon isolation and restart behavior
+- [Manifest Guide](examples/manifestguide.md) - Manifest patterns used by the sample agents
+- [Examples Directory](examples) - Ready-to-adapt sample packages
 
 ---
 

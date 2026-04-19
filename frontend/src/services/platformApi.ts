@@ -12,6 +12,10 @@ import type {
   LlmProvider,
   LlmProviderUpsertRequest,
   McpHealthResponse,
+  McpPromptGetResponse,
+  McpPromptsListResponse,
+  McpResourceReadResponse,
+  McpResourcesListResponse,
   McpToolsListResponse,
   PackageRegisterRequest,
   PackageSchedule,
@@ -27,6 +31,17 @@ export const platformApi = {
   health: () => apiFetch<HealthResponse>("/health"),
   mcpHealth: () => apiFetch<McpHealthResponse>("/mcp/health"),
   listMcpTools: () => apiFetch<McpToolsListResponse>("/mcp/tools"),
+  listMcpResources: () => apiFetch<McpResourcesListResponse>("/mcp/resources"),
+  readMcpResource: (uri: string) => {
+    const params = new URLSearchParams({ uri });
+    return apiFetch<McpResourceReadResponse>(`/mcp/resources/read?${params.toString()}`);
+  },
+  listMcpPrompts: () => apiFetch<McpPromptsListResponse>("/mcp/prompts"),
+  renderMcpPrompt: (promptName: string, argumentsPayload: Record<string, unknown>) =>
+    apiFetch<McpPromptGetResponse>(`/mcp/prompts/${encodeURIComponent(promptName)}/render`, {
+      method: "POST",
+      body: JSON.stringify({ arguments: argumentsPayload }),
+    }),
   listPackages: () => apiFetch<AgentPackage[]>("/packages"),
   listPackage: (packageId: number) => apiFetch<AgentPackage>(`/packages/${packageId}`),
   getPackage: (packageId: number) => apiFetch<AgentPackage>(`/packages/${packageId}`),

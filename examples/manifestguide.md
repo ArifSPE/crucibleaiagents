@@ -105,10 +105,10 @@ Schema-allowed tool keys:
 ### Daemon-specific fields
 Used in daemon examples:
 - `runtime_mode`: typically `daemon`
-- `auto_start`: boolean
+- `daemon_auto_start`: boolean
 - `health_check`: object (`type`, `path`, `port`, intervals/timeouts)
 - `restart_policy`: for example `on-failure`
-- `expose`: host exposure metadata (for example HTTP port/path)
+- `exposed_port`: host port to expose for the daemon service
 
 ### Other optional metadata seen in examples
 - `agent_id`

@@ -9,6 +9,13 @@ import httpx
 from fastapi import HTTPException
 
 from schemas.mcp import (
+    MCPPromptArgumentInfo,
+    MCPPromptGetResponse,
+    MCPPromptInfo,
+    MCPPromptsListResponse,
+    MCPResourceInfo,
+    MCPResourceReadResponse,
+    MCPResourcesListResponse,
     MCPToolInfo,
     MCPToolsListResponse,
     MCPToolInvokeResponse,
@@ -370,6 +377,143 @@ def _jsonrpc_call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> MCPTool
     return response
 
 
+def _normalize_prompt_arguments(arguments: Any) -> list[MCPPromptArgumentInfo | dict[str, Any]]:
+    if not isinstance(arguments, list):
+        return []
+
+    normalized: list[MCPPromptArgumentInfo | dict[str, Any]] = []
+    for item in arguments:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            MCPPromptArgumentInfo(
+                name=str(item.get("name") or ""),
+                description=str(item.get("description") or ""),
+                required=bool(item.get("required") or False),
+            )
+        )
+    return normalized
+
+
+def list_mcp_resources() -> MCPResourcesListResponse:
+    result = _rpc_call("resources/list", {})
+
+    resources_payload = result.get("resources") if isinstance(result, dict) else []
+    resources: list[MCPResourceInfo] = []
+    if isinstance(resources_payload, list):
+        for item in resources_payload:
+            if not isinstance(item, dict):
+                continue
+            resources.append(
+                MCPResourceInfo(
+                    uri=str(item.get("uri") or ""),
+                    name=str(item.get("name") or ""),
+                    description=str(item.get("description") or ""),
+                    mime_type=item.get("mimeType") or item.get("mime_type"),
+                )
+            )
+
+    log_event(
+        LOGGER,
+        20,
+        "mcp.resources.listed",
+        "Listed MCP resources",
+        resource_count=len(resources),
+        mcp_server_url=MCP_SERVER_URL,
+    )
+    return MCPResourcesListResponse(server_url=MCP_SERVER_URL, resources=resources)
+
+
+def read_mcp_resource(uri: str) -> MCPResourceReadResponse:
+    normalized_uri = (uri or "").strip()
+    if not normalized_uri:
+        raise HTTPException(status_code=400, detail="uri is required")
+
+    result = _rpc_call("resources/read", {"uri": normalized_uri})
+    contents = result.get("contents") if isinstance(result, dict) else []
+    if not isinstance(contents, list):
+        contents = []
+
+    response = MCPResourceReadResponse(
+        uri=normalized_uri,
+        contents=contents,
+        raw_result=result,
+    )
+
+    log_event(
+        LOGGER,
+        20,
+        "mcp.resource.read",
+        "Read MCP resource",
+        uri=normalized_uri,
+        content_count=len(contents),
+    )
+    return response
+
+
+def list_mcp_prompts() -> MCPPromptsListResponse:
+    result = _rpc_call("prompts/list", {})
+
+    prompts_payload = result.get("prompts") if isinstance(result, dict) else []
+    prompts: list[MCPPromptInfo] = []
+    if isinstance(prompts_payload, list):
+        for item in prompts_payload:
+            if not isinstance(item, dict):
+                continue
+            prompts.append(
+                MCPPromptInfo(
+                    name=str(item.get("name") or ""),
+                    description=str(item.get("description") or ""),
+                    arguments=_normalize_prompt_arguments(item.get("arguments")),
+                )
+            )
+
+    log_event(
+        LOGGER,
+        20,
+        "mcp.prompts.listed",
+        "Listed MCP prompts",
+        prompt_count=len(prompts),
+        mcp_server_url=MCP_SERVER_URL,
+    )
+    return MCPPromptsListResponse(server_url=MCP_SERVER_URL, prompts=prompts)
+
+
+def get_mcp_prompt(name: str, arguments: dict[str, Any]) -> MCPPromptGetResponse:
+    prompt_name = (name or "").strip()
+    if not prompt_name:
+        raise HTTPException(status_code=400, detail="prompt name is required")
+
+    result = _rpc_call(
+        "prompts/get",
+        {
+            "name": prompt_name,
+            "arguments": arguments or {},
+        },
+    )
+
+    messages = result.get("messages") if isinstance(result, dict) else []
+    if not isinstance(messages, list):
+        messages = []
+
+    response = MCPPromptGetResponse(
+        name=prompt_name,
+        description=str(result.get("description") or "") if isinstance(result, dict) else "",
+        messages=messages,
+        raw_result=result,
+    )
+
+    log_event(
+        LOGGER,
+        20,
+        "mcp.prompt.rendered",
+        "Rendered MCP prompt",
+        prompt_name=prompt_name,
+        message_count=len(messages),
+    )
+    return response
+
+
 def list_mcp_tools() -> MCPToolsListResponse:
     mode = _resolve_client_mode()
     log_event(LOGGER, 20, "mcp.tools.list.mode_selected", "Selected MCP tool list orchestration mode", orchestration=mode)
@@ -393,8 +537,22 @@ def call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> MCPToolInvokeRes
 
 def get_mcp_health() -> dict[str, Any]:
     tools = list_mcp_tools()
+
+    resource_count: int | None = None
+    prompt_count: int | None = None
+    try:
+        resource_count = len(list_mcp_resources().resources)
+    except HTTPException:
+        resource_count = None
+    try:
+        prompt_count = len(list_mcp_prompts().prompts)
+    except HTTPException:
+        prompt_count = None
+
     return {
         "status": "ok",
         "server_url": tools.server_url,
         "tool_count": len(tools.tools),
+        "resource_count": resource_count,
+        "prompt_count": prompt_count,
     }

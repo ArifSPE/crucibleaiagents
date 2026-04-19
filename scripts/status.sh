@@ -126,6 +126,11 @@ if ! command -v docker-compose &> /dev/null; then
     exit 1
 fi
 
+# If the shell inherits the container-specific docker-proxy endpoint, reset it for host checks.
+if [[ "${DOCKER_HOST:-}" == tcp://docker-proxy:* ]]; then
+    unset DOCKER_HOST
+fi
+
 # Check Docker daemon
 if ! docker info &> /dev/null; then
     log_error "Docker daemon not running"

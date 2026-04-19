@@ -115,7 +115,7 @@ MS_TEAMS_DESTINATION_CHANNEL_ID=dest-channel-012
 | `test_agent.py` | Agent functionality testing | `examples/msteam-channel-summarizer/` |
 | `test_destination_channels.py` | Destination channel testing | `examples/msteam-channel-summarizer/` |
 | `websocket_tester.py` | WebSocket integration testing | `examples/msteam-channel-summarizer/` |
-| `.env.examples` | Configuration templates | `examples/msteam-channel-summarizer/` |
+| `manifest.json` | Package configuration template | `examples/msteam-channel-summarizer/` |
 
 ### 🎯 **Key Features Implemented**
 
