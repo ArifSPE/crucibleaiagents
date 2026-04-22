@@ -26,194 +26,96 @@ A secure control plane for packaging, deploying, scheduling, and operating AI ag
 - **REST API**: Full-featured API for agent management and run orchestration
 - **MCP Integration**: Dedicated FastMCP server container with HTTP tool invocation from API
 
-## ✅ Open-Source Release Readiness
+## ✅ Open-Source Release Notes
 
-Before a public community launch, confirm the following:
+This repository includes supporting material for a public community launch:
 
-- [ ] Replace the current personal-use license with the license you want for public distribution
-- [ ] Review `.env.sample` and examples to ensure no secrets or internal-only values remain
-- [ ] Enable GitHub Issues, Discussions, and repository metadata for community contributions
-- [ ] Verify example agents still run against the latest API and startup scripts
-- [ ] Add screenshots or a short demo GIF for the operator console if you want a stronger first impression
-
-A more detailed maintainer checklist is available in [docs/OPEN_SOURCE_RELEASE_CHECKLIST.md](docs/OPEN_SOURCE_RELEASE_CHECKLIST.md), and ready-to-use repository description, topic, and launch copy is available in [docs/GITHUB_RELEASE_COPY.md](docs/GITHUB_RELEASE_COPY.md).
+- Licensing notice and release context in this README
+- Detailed maintainer guidance in [docs/OPEN_SOURCE_RELEASE_CHECKLIST.md](docs/OPEN_SOURCE_RELEASE_CHECKLIST.md)
+- Repository description, topic suggestions, and launch copy in [docs/GITHUB_RELEASE_COPY.md](docs/GITHUB_RELEASE_COPY.md)
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      FastAPI REST API                        │
-│ (Agent Mgmt, Run Orchestration, Secrets, MCP HTTP Client)   │
-└──────┬──────────────────────────────────────────────┬────────┘
-  │                                              │
-  │                                              │
-    ┌──┴──────────┐    ┌──────────────┐    ┌────────┴──────┐
-    │  Scheduler  │    │   Watcher    │    │  Secrets Mgr  │
-    │ (cron-based)│    │ (filesystem) │    │ (encryption)  │
-    └──────┬──────┘    └──────┬───────┘    └───────────────┘
-           │                  │
-           │                  ▼
-    ┌──────┴──────────────────────────────────────┐
-    │          PostgreSQL Database                 │
-    │  (packages, runs, schedules, secrets, logs)  │
-    └──────┬──────────────────────────────────────┘
-           │
-    ┌──────┴─────────────────────────────────────────┐
-    │         Worker Service Layer                   │
-    │                                               │
-    │  ┌─────────────────┬─────────────────┐       │
-    │  │  Container Wkr  │   Local Worker   │       │
-    │  │  (Docker runs)  │  (subprocess)    │       │
-    │  └─────────────────┴─────────────────┘       │
-    └──────┬─────────────────────────────────────────┘
-           │
-       ┌───────▼───────────────┐
-       │   MCP Server          │
-       │ (FastMCP over HTTP)   │
-       └───────┬───────────────┘
-          │
-          ▼
-        ┌───────────────┐
-        │ MCP Tools     │
-        │ LangGraph/LC  │
-        └───────────────┘
+CrucibleAgentPlatform is split into clear service boundaries:
 
-  
-           
-  ┌────────┴─────────────────┬──────────────┐
-  │                           │              │
-  ▼                           ▼              ▼
-┌─────────────────┐    ┌────────────┐  ┌─────────┐
-│  Docker Runner  │    │  Daemon    │  │ Logging │
-│  Containers     │    │  Monitors  │  │ & Audit │
-└─────────────────┘    └────────────┘  └─────────┘
-```
+- API: request validation, orchestration endpoints, secrets, MCP client integration
+- Worker layer: local and container execution, daemon lifecycle, scheduled dispatch
+- Watcher and scheduler: package intake automation and recurring run triggers
+- Database: packages, runs, schedules, secrets metadata, and audit-friendly records
+- MCP server: isolated FastMCP service exposing tools, resources, and prompts
+- Frontend: React operator console for package, run, and MCP operations
+
+High-level flow: package registration -> watcher/scheduler events -> worker execution -> logs and events persisted -> operator visibility in API and frontend.
 
 ## 🚦 Quick Start
 
 ### Prerequisites
 - Python 3.11+
-- Docker & Docker Compose
+- Docker and Docker Compose
 - PostgreSQL 16
 - 4GB RAM minimum
 
-### Installation
+### 1) Install and configure
 
 ```bash
-# Clone repository
 git clone <repository-url>
 cd crucibleaiagents
 
-# Create Python virtual environment
 python3.11 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Configure environment (see Environment Variables section)
 cp .env.sample .env
-# Edit .env with your configuration
+```
 
-# Start platform
+### 2) Start the platform
+
+```bash
 ./scripts/start.sh --daemon
+```
 
-# Verify health
+### 3) Verify health
+
+```bash
 curl http://localhost:8080/health
+curl http://localhost:8080/mcp/health
+```
 
-# Frontend operator console
-# Visit http://localhost:5173 in your browser
+### 4) Open the operator console
 
-# Run API tests
+- Frontend: http://localhost:5173
+- MCP page: http://localhost:5173/mcp-server
+
+### 5) Run API tests
+
+```bash
 ./scripts/run_tests.sh --api -q
 ```
 
 ### MCP Server Integration
 
-The platform includes a dedicated `mcp_server` service (FastMCP) running in a
-separate container. The API acts as an MCP HTTP client and forwards tool calls
-to the MCP endpoint.
+The `mcp_server` service runs as an isolated FastMCP container. The API forwards MCP operations over HTTP, and the frontend exposes tools, resources, and prompts in the MCP page.
 
-Dependency note:
-
-- The MCP container installs dependencies from `mcp_server/requirements.txt`.
-- This is intentionally isolated from the root `requirements.txt` to avoid
-  version conflicts between API pins and FastMCP/httpx/fastapi requirements.
-- MCP dependencies are prebuilt into the `mcp_server` image (via `mcp_server/Dockerfile`),
-  so service restarts do not re-install packages each time.
-- If needed, tune startup wait with `MCP_HEALTH_TIMEOUT_SECONDS` (default 240) when
-  starting with `./scripts/start.sh`.
-
-Default MCP configuration:
-
-- `MCP_SERVER_URL=http://mcp_server:9001/mcp`
-- `MCP_CLIENT_TIMEOUT_SECONDS=20`
-- `MCP_SERVER_PATH=/mcp`
-- `MCP_ENABLED_TOOLS=` (comma-separated allowlist)
-- `MCP_DISABLED_TOOLS=` (comma-separated denylist)
-- `MCP_ALLOWED_WEB_HOSTS=` (comma-separated host allowlist for `web_service_call`)
-- `MCP_WEB_REQUEST_TIMEOUT_SECONDS=10`
-- `TAVILY_API_KEY=` (required for `tavily_search`)
-
-API endpoints:
-
-- `GET /mcp/health`: verify API-to-MCP connectivity
-- `GET /mcp/tools`: list tools exposed by the MCP server
-- `POST /mcp/tools/{tool_name}/invoke`: invoke a tool over HTTP
-- `GET /mcp/resources`: list MCP resources exposed by the server
-- `GET /mcp/resources/read?uri=...`: preview resource contents safely
-- `GET /mcp/prompts`: list reusable MCP prompt templates
-- `POST /mcp/prompts/{prompt_name}/render`: render a prompt with JSON arguments
-
-The frontend operator console at `/mcp-server` surfaces these tools, resources, and prompts and supports previewing mounted files from the safe MCP roots, including plain text, Markdown, JSON, DOCX, and PDF files when allowlisted.
-
-Example calls:
+Common checks:
 
 ```bash
-# List tools registered by the MCP server
 curl http://localhost:8080/mcp/tools
+curl http://localhost:8080/mcp/resources
+curl http://localhost:8080/mcp/prompts
 
-# Invoke ping tool
 curl -X POST http://localhost:8080/mcp/tools/ping/invoke \
   -H "Content-Type: application/json" \
   -d '{"arguments": {"message": "hello"}}'
-
-# Add numbers
-curl -X POST http://localhost:8080/mcp/tools/add/invoke \
-  -H "Content-Type: application/json" \
-  -d '{"arguments": {"a": 10, "b": 5}}'
-
-# Substract numbers (tool name intentionally matches this spelling)
-curl -X POST http://localhost:8080/mcp/tools/substract/invoke \
-  -H "Content-Type: application/json" \
-  -d '{"arguments": {"a": 10, "b": 5}}'
-
-# Tavily search (requires TAVILY_API_KEY)
-curl -X POST http://localhost:8080/mcp/tools/tavily_search/invoke \
-  -H "Content-Type: application/json" \
-  -d '{"arguments": {"query": "latest model context protocol updates", "max_results": 3}}'
-
-# Safe web service GET call (host must be in MCP_ALLOWED_WEB_HOSTS when configured)
-curl -X POST http://localhost:8080/mcp/tools/web_service_call/invoke \
-  -H "Content-Type: application/json" \
-  -d '{"arguments": {"url": "https://example.com"}}'
 ```
 
 #### Registering New MCP Tools
 
 MCP tools are plugin-based and auto-discovered from `mcp_server/tools/**`.
 
-1. Add a new module under `mcp_server/tools/` (for example: `mcp_server/tools/core/my_tool.py`).
-2. Export one or more `MCPToolSpec` entries via a module-level `TOOL_SPECS` list.
-3. Implement each tool's `register(mcp: FastMCP)` callback and decorate functions with `@mcp.tool`.
-4. Restart `mcp_server`; discovery and registration happen automatically at startup.
-
-Registration policy:
-
-- `MCP_ENABLED_TOOLS`: if set, only listed tools are registered.
-- `MCP_DISABLED_TOOLS`: listed tools are always skipped.
-
-This model keeps server bootstrap stable while allowing safe, incremental tool additions.
+1. Add a module under `mcp_server/tools/` (for example `mcp_server/tools/core/my_tool.py`).
+2. Export one or more `MCPToolSpec` entries in `TOOL_SPECS`.
+3. Implement `register(mcp: FastMCP)` and decorate callable functions with `@mcp.tool`.
+4. Restart `mcp_server` to load changes.
 
 ### Deploy Your First Agent
 
