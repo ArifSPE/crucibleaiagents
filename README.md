@@ -703,6 +703,24 @@ Long-running services with auto-restart and optional HTTP health checks.
 ./scripts/stop.sh && ./scripts/start.sh
 ```
 
+### Platform Management Hub (manage.sh)
+
+Use `manage.sh` when you want a guided operations menu for common platform tasks.
+
+```bash
+./scripts/manage.sh
+```
+
+What you can do from the menu:
+
+- Start, stop, restart, and check platform status
+- View logs by service (API, worker, watcher, MCP, and local services)
+- Check MCP tool connectivity and sync MCP tools to the registry
+- Start local worker and manage local watcher
+- Rebuild/restart selected services and open shell operations
+
+Tip: use this script for day-to-day operator workflows, and use the individual scripts (`start.sh`, `stop.sh`, `status.sh`, `logs.sh`) for direct automation.
+
 ### Health Check
 ```bash
 # API health
